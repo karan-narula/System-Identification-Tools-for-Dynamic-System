@@ -1,7 +1,7 @@
 import math
 import numpy as np
 
-from estimators import sample_gaussian
+from estimators import sample_nlds
 
 
 class AbstractDyn(object):
@@ -50,49 +50,29 @@ class AbstractDyn(object):
         """
         get ground truth and output data (SNLDS: Stochastic non-linear dynamic system)
         """
-        if Q is None:
-            Q = np.zeros((len(z0), len(z0)))
-        if P0 is None:
-            P0 = np.zeros((len(z0), len(z0)))
-        if R is None:
-            R = np.zeros((self.num_out, self.num_out))
-
         # check sizes of received matrices
         num_sol = len(T)
         assert len(
             z0) == self.num_states, "True initial condition is of incorrect size"
         assert U.shape == (
             self.num_in, num_sol), "Incorrect size of input matrix"
-        assert Q.shape == (
-            self.num_states, self.num_states), "Inconsistent size of process noise matrix"
-        assert P0.shape == (
-            self.num_states, self.num_states), "Inconsistent size of initial covariance matrix"
-        assert R.shape == (
-            self.num_out, self.num_out), "Inconsistent size of observation noise matrix"
-        # generate noise samples for stochastic model and observations
-        state_noise_samples = sample_gaussian(np.zeros(z0.shape), Q, num_sol)
-        obs_noise_samples = sample_gaussian(
-            np.zeros((self.num_out, 1)), R, num_sol)
 
-        # initialise matrices to return
-        gt_states = np.zeros((z0.shape[0], num_sol))
-        gt_states[:, 0:1] = z0
+        def process_model(x, u, noise, dt): return self.forward_prop(
+            x, self.dxdt(x, u), dt) + noise
+
+        def observation_model(
+            x, u, noise): return self.output_model(x, u) + noise
+
+        # get ground truth data, initial and output data
+        dts = np.diff(T)
+        dts = np.append(dts, dts[-1])
+        gt_states, initial_cond, outputs, additional_args_pm_array, additional_args_om_array = sample_nlds(
+            z0, U, num_sol, process_model, observation_model, self.num_out, Q=Q, P0=P0, R=R, additional_args_pm=[dts])
+
+        # separately, get the derivative of ground truth
         gt_states_dot = np.zeros(gt_states.shape)
-        initial_cond = sample_gaussian(z0, P0, 1)
-        outputs = np.zeros((self.num_out, num_sol))
-        outputs[:, 0] = self.output_model(
-            gt_states[:, 0], U[:, 0]) + obs_noise_samples[:, 0]
-
         for i in range(1, num_sol):
             gt_states_dot[:, i-1] = self.dxdt(gt_states[:, i-1], U[:, i-1])
-            # first order euler approximation
-            dt = T[i] - T[i-1]
-            gt_states[:, i] = self.forward_prop(
-                gt_states[:, i-1], gt_states_dot[:, i-1], dt) + state_noise_samples[:, i-1]
-
-            # output
-            outputs[:, i] = self.output_model(
-                gt_states[:, i], U[:, i]) + obs_noise_samples[:, i]
 
         gt_states_dot[:, num_sol -
                       1] = self.dxdt(gt_states[:, num_sol-1], U[:, num_sol-1])
@@ -110,6 +90,12 @@ class AbstractDyn(object):
             self.gt_states_dot = gt_states_dot
             self.initial_cond = initial_cond
             self.outputs = outputs
+
+            self.process_model = process_model
+            self.observation_model = observation_model
+
+            self.additional_args_pm_array = additional_args_pm_array
+            self.additional_args_om_array = additional_args_om_array
 
         return gt_states, gt_states_dot, initial_cond, outputs
 

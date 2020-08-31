@@ -5,6 +5,7 @@ from scipy.linalg import block_diag
 from scipy.special import comb
 from scipy.optimize import least_squares
 import itertools
+from collections import Iterable
 
 
 def sample_gaussian(mu, Sigma, N=1):
@@ -74,25 +75,25 @@ class PointBasedFilter(object):
         self.method = method
         self.order = order
 
-    def predict_and_update(self, X, P, f, h, Q, R, u, y, iq=None):
+    def predict_and_update(self, X, P, f, h, Q, R, u, y, additional_args_pm=[], additional_args_om=[]):
         """
         X: expected value of the states (n x 1) array
         P: covariance of the states (n x n) array
-        f: function handle for the process model
-        h: function handle for the observation model
+        f: function handle for the process model; expected signature f(state, input, noise, ...)
+        h: function handle for the observation model; expected signature h(state, input, noise, ...)
         Q: process model noise covariance in the prediction step (nq x nq) array
         R: observation model noise covariance in the update step (nu x nu) array
         u: current input required for function f & possibly function h
         y: current measurement/output of the system (nu x 1) array
-        iq: index of the states that have additive noise q in the process model (nq x 1) array, i.e. X(ia) = f(X(ia)) + q 
+        additional_args_pm: list of additional arguments to be passed to the process model during the prediction step
+        additional_args_om: list of additional arguments to be passed to the observation model during the update step
+
         """
-        if iq is None:
-            iq = np.arange(X.shape[0])
         # create augmented system of the states and the noises
         n = len(X)
-        nq = len(iq)
-        nu = len(y)
-        X1 = np.concatenate((X, np.zeros((nq, 1)), np.zeros((nu, 1))), axis=0)
+        nq = Q.shape[0]
+        nr = R.shape[0]
+        X1 = np.concatenate((X, np.zeros((nq, 1)), np.zeros((nr, 1))), axis=0)
         P1 = block_diag(P, Q, R)
 
         # generate cubature/sigma points and the weights based on the method
@@ -111,13 +112,13 @@ class PointBasedFilter(object):
         ia = np.arange(n)
         ib = np.arange(n, n+nq)
         X, x, P, x1 = self.unscented_transformF(
-            x, W, WeightMat, L, f, u, iq, ia, ib)
+            x, W, WeightMat, L, f, u, ia, ib, additional_args_pm)
 
         # update step
-        if nu > 0:
-            ip = np.arange(n+nq, n+nq+nu)
+        if len(y):
+            ip = np.arange(n+nq, n+nq+nr)
             Z, _, Pz, z2 = self.unscented_transformH(
-                x, W, WeightMat, L, h, u, ia, ip)
+                x, W, WeightMat, L, h, u, ia, ip, len(y), additional_args_om)
             # transformed cross-covariance
             Pxy = np.matmul(np.matmul(x1, WeightMat), z2.T)
             # Kalman gain
@@ -129,12 +130,11 @@ class PointBasedFilter(object):
 
         return X, P
 
-    def unscented_transformH(self, x, W, WeightMat, L, f, u, ia, ip):
-        n = len(ip)
+    def unscented_transformH(self, x, W, WeightMat, L, f, u, ia, iq, n, additional_args):
         Y = np.zeros((n, 1))
         y = np.zeros((n, L))
         for k in range(L):
-            y[:, k] = f(x[ia, k], u) + x[ip, k]
+            y[:, k] = f(x[ia, k], u, x[iq, k], *additional_args)
             Y += W.flat[k]*y[:, k:k+1]
 
         y1 = y - Y
@@ -142,7 +142,7 @@ class PointBasedFilter(object):
 
         return Y, y, P, y1
 
-    def unscented_transformF(self, x, W, WeightMat, L, f, u, iq, ia, ib):
+    def unscented_transformF(self, x, W, WeightMat, L, f, u, ia, iq, additional_args):
         """
         Function to propagate sigma/cubature points during the prediction step
         """
@@ -150,11 +150,7 @@ class PointBasedFilter(object):
         Y = np.zeros((order, 1))
         y = x
         for k in range(L):
-            # prediction using function handlea
-            y[ia, k] = f(y[ia, k], u)
-            y[iq, k] += y[ib, k]
-
-            # iterative computation of expected value
+            y[ia, k] = f(x[ia, k], u, x[iq, k], *additional_args)
             Y += W.flat[k]*y[np.arange(order), k:k+1]
 
         y1 = y[np.arange(order), :] - Y
@@ -459,20 +455,23 @@ def fit_data_rover(states, U, dt, vxdot=np.array([]), yawrate=np.array([]), vy=n
     return parameters
 
 
-def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None):
+def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, additional_args_pm=[], additional_args_om=[]):
     """
     Retrieve ground truth, initial and output data (SNLDS: Stochastic non-linear dynamic system)
     z0: initial ground truth condition (n x 1 array)
     U: inputs for the process and observation model (nu x nt array)
     nt: number of simulation steps (scalar)
-    f: function handle for one-time step forward propagating the state
-    h: function handle for retrieving the outputs of the system as a function of system states
+    f: function handle for one-time step forward propagating the state; expected signature f(state, input, noise, ...)
+    h: function handle for retrieving the outputs of the system as a function of system states;
+       expected signature h(state, input, noise, ...)
     num_out: number of outputs from function h (scalar)
     Q: noise covariance matrix for additive noise in the stochastic model f (n x n array)
     P0: initial covariance for the initial estimate around the ground truth (n x n array)
     R: covariance matrix of additive noise in h function (num_out x num_out array)
+    additional_args_pm: list of additional arguments to be passed to the process model during the prediction step
+    additional_args_om: list of additional arguments to be passed to the observation model during the prediction step
     """
-    if not U:
+    if not len(U):
         U = np.zeros((0, nt))
     if Q is None:
         Q = np.zeros((len(z0), len(z0)))
@@ -491,6 +490,24 @@ def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None):
     assert R.shape == (
         num_out, num_out), "Inconsistent size of observation noise matrix"
 
+    # check the additional arguments
+    additional_args_pm_array = np.zeros((len(additional_args_pm), nt))
+    additional_args_om_array = np.zeros((len(additional_args_om), nt))
+    for i, argument in enumerate(additional_args_pm):
+        if not isinstance(argument, Iterable):
+            additional_args_pm_array[i, :] = np.matlib.repmat(argument, 1, nt)
+        else:
+            assert len(
+                argument) == nt, "If iterable argument for pm is provided, it should have the length of nt"
+            additional_args_pm_array[i, :] = argument
+    for i, argument in enumerate(additional_args_om_array):
+        if not isinstance(argument, Iterable):
+            additional_args_om_array[i, :] = np.matlib.repmat(argument, 1, nt)
+        else:
+            assert len(
+                argument) == nt, "If iterable argument for om is provided, it should have the length of nt"
+            additional_args_om_array[i, :] = argument
+
     # generate noise samples for stochastic model and observations
     state_noise_samples = sample_gaussian(np.zeros(z0.shape), Q, nt)
     obs_noise_samples = sample_gaussian(
@@ -501,14 +518,17 @@ def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None):
     gt_states[:, 0:1] = z0
     initial_cond = sample_gaussian(z0, P0, 1)
     outputs = np.zeros((num_out, nt))
-    outputs[:, 0] = h(gt_states[:, 0], U[:, 0]) + obs_noise_samples[:, 0]
+    outputs[:, 0] = h(gt_states[:, 0], U[:, 0],
+                      obs_noise_samples[:, 0], *additional_args_om_array[:, 0])
 
     for i in range(1, nt):
-        gt_states[:, i] = f(gt_states[:, i-1], U[:, i-1]) + \
-            state_noise_samples[:, i-1]
-        outputs[:, i] = h(gt_states[:, i], U[:, i]) + obs_noise_samples[:, i]
+        gt_states[:, i] = f(gt_states[:, i-1], U[:, i-1],
+                            state_noise_samples[:, i-1], *additional_args_pm_array[:, i-1])
 
-    return gt_states, initial_cond, outputs
+        outputs[:, i] = h(gt_states[:, i], U[:, i],
+                          obs_noise_samples[:, i], *additional_args_om_array[:, i])
+
+    return gt_states, initial_cond, outputs, additional_args_pm_array, additional_args_om_array
 
 
 def test_pbgf_linear(n=10, m=5, nt=10):
@@ -528,18 +548,18 @@ def test_pbgf_linear(n=10, m=5, nt=10):
     J = np.eye(n) + dt*(-2.0*np.eye(n) +
                         np.diag(np.ones(n-1), 1) + np.diag(np.ones(n-1), -1))
 
-    def process_model(x, u=[]): return np.matmul(J, x)
+    def process_model(x, u, noise): return np.matmul(J, x) + noise
     Q = 5.0*np.eye(n)
     out_loc = np.random.permutation(n)[:m]
     R = 1.0*np.eye(m)
     H = np.zeros((m, n))
     l_ind = out_loc + np.arange(m)*n
     H.flat[l_ind] = 1.0
-    def observation_model(x, u=[]): return np.matmul(H, x)
+    def observation_model(x, u, noise): return np.matmul(H, x) + noise
 
     ## generate the output of the real time system
     x_gt, x0, outputs = sample_nlds(
-        X, [], nt, process_model, observation_model, m, Q, P, R)
+        X, [], nt, process_model, observation_model, m, Q, P, R)[0:3]
 
     ## loop through and compare result from KF and a pbgf
     pbgf = PointBasedFilter('CKF', 2)
@@ -554,11 +574,11 @@ def test_pbgf_linear(n=10, m=5, nt=10):
     for i in range(1, nt):
         # KF code
         # prediction step
-        X1 = process_model(X1)
+        X1 = process_model(X1, [], 0.0)
         P1 = np.matmul(np.matmul(J, P1), J.T) + Q
 
         # update step
-        z = outputs[:, i:i+1] - observation_model(X1)
+        z = outputs[:, i:i+1] - observation_model(X1, [], 0.0)
         S = np.matmul(np.matmul(H, P1), H.T) + R
         K = np.matmul(np.matmul(P1, H.T), np.linalg.inv(S))
         X1 += np.matmul(K, z)
@@ -597,8 +617,8 @@ def test_pbgf_1d_linear(gt_const=10.0, initial_cov=10.0, q_cov=1e-2, r_cov=1, nt
     P = initial_cov*np.ones((1, 1))
 
     # process and observation model
-    def process_model(x, u=[]): return x
-    def observation_model(x, u=[]): return x
+    def process_model(x, u=[], noise=0.0): return x + noise
+    def observation_model(x, u=[], noise=0.0): return x + noise
 
     # process and observation noises
     R = np.array([[r_cov]])
@@ -606,7 +626,7 @@ def test_pbgf_1d_linear(gt_const=10.0, initial_cov=10.0, q_cov=1e-2, r_cov=1, nt
 
     # generate the initial condition
     x_gt, x0, outputs = sample_nlds(
-        X, [], nt, process_model, observation_model, 1, Q, P, R)
+        X, [], nt, process_model, observation_model, 1, Q, P, R)[0:3]
 
     ## loop through and compare result from KF and a pbgf
     pbgf = PointBasedFilter('CKF', 2)

@@ -185,10 +185,8 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2):
         (dynamic_obj.num_states, dynamic_obj.num_states, num_sol))
     cov_states[:, :, 0] = dynamic_obj.P0.copy()
     for i in range(1, num_sol):
-        def dyn_model(state, u): return dynamic_obj.forward_prop(
-            state, dynamic_obj.dxdt(state, u), dynamic_obj.T[i]-dynamic_obj.T[i-1])
-        est_states[:, i:i+1], cov_states[:, :, i] = pbgf.predict_and_update(est_states[:, i-1:i], cov_states[:, :, i-1], dyn_model,
-                                                                            dynamic_obj.output_model, dynamic_obj.Q, dynamic_obj.R, dynamic_obj.U[:, i-1], dynamic_obj.outputs[:, i:i+1])
+        est_states[:, i:i+1], cov_states[:, :, i] = pbgf.predict_and_update(est_states[:, i-1:i], cov_states[:, :, i-1], dynamic_obj.process_model,
+                                                                            dynamic_obj.observation_model, dynamic_obj.Q, dynamic_obj.R, dynamic_obj.U[:, i-1], dynamic_obj.outputs[:, i:i+1], additional_args_pm=dynamic_obj.additional_args_pm_array[:, i-1], additional_args_om=dynamic_obj.additional_args_om_array[:, i])
 
     return est_states, cov_states
 
