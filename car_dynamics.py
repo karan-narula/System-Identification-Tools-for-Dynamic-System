@@ -6,7 +6,15 @@ from estimators import sample_nlds
 
 class AbstractDyn(object):
     """
-    Abstract dynamics class to be expanded upon
+    Abstract dynamics class with useful base functions for derived classes
+
+    Args:
+        param_dict (dict): dictionary of parameters needed for defining the dynamics
+        expected_keys (list): list of parameters string that are expected to be present in the param_dict; defaults to empty
+        state_keys (list): list of states string that are observed by sensor; defaults to empty
+        state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
+        state_dict (dict): dictionary mapping states string to index in array
+
     """
 
     def __init__(self, param_dict, expected_keys=[], state_keys=[], state_dot_keys=[], state_dict={}):
@@ -38,7 +46,11 @@ class AbstractDyn(object):
 
     def check_param_dict(self):
         """
-        Can be overriden by inherited class 
+        Basic checking of parameter dictionary. Returns false if any expected keys is not present in param_dict.
+
+        Returns:
+            (bool): True if all expected keys are present in param_dict and False otherwise
+
         """
         for key in self.expected_keys:
             if key not in self.param_dict.keys():
@@ -48,7 +60,17 @@ class AbstractDyn(object):
 
     def sample_nlds(self, z0, U, T, Q=None, P0=None, R=None, store_variables=True):
         """
-        get ground truth and output data (SNLDS: Stochastic non-linear dynamic system)
+        Retrieve ground truth, initial and output data (SNLDS: Stochastic non-linear dynamic system)
+
+        Args:
+            z0 (numpy array [n x 1]): initial ground truth condition
+            U (numpy array [nu x nt]): inputs for the process and observation model
+            T (numpy array [nt x 1 or 1 x nt]): time instances for retrieving ground truth and output data
+            Q (numpy array [nq x nq]): noise covariance matrix involved in the stochastic dynamic model
+            P0 (numpy array [n x n]): initial covariance for the initial estimate around the ground truth
+            R (numpy array [nr x nr]): covariance matrix of the noise involved in observed sensor data
+            store_variables (bool): whether to store ground truth, initial and output arrays within the class
+
         """
         # check sizes of received matrices
         num_sol = len(T)
@@ -100,15 +122,39 @@ class AbstractDyn(object):
         return gt_states, gt_states_dot, initial_cond, outputs
 
     def forward_prop(self, state, state_dot, dt):
+        """
+        Forward propagation of model via first order Euler approximation, i.e. X[k+1] = X[k] + dt*X'[k], where X' is the derivative.
+
+        Args:
+            state (numpy array [n x 1 or 1 x n]): current state vector
+            state_dot (numpy array [n x 1 or 1 x n]): current derivative of the state
+            dt (float): time step/difference between discrete step k and step k+1
+
+        Returns:
+            state (numpy array [n x 1 or 1 x n]): next time-step state vector
+
+        """
         return state + dt*state_dot
 
     def output_model(self, state, u):
+        """
+        Simulate the output of the system.
+
+        Args:
+            state (numpy array [n x 1]): current state vector
+            u (*): current input
+
+        Returns:
+            output (numpy array [len(self.state_indices) + len(state_dot_indices) x 1]): observed state and 
+                state derivatives of the system
+
+        """
         return np.concatenate((state[self.state_indices], self.dxdt(state, u)[0, self.state_dot_indices]))
 
 
 class FrontSteered(AbstractDyn):
     """
-    Assumptions:
+    Front Steered model derived from AbstractDyn class. The assumptions of the this model are:
     (i) steering angles of the front left and right wheels are the same. front steered only.
     (ii) steering command is small enough such that sin(steering) = steering
     (iii) vehicle operates in the linear region of the tire-force curve with negligible inclination and bang angles
@@ -118,6 +164,13 @@ class FrontSteered(AbstractDyn):
     model from: "Tire-Stiffness and Vehicle-State Estimation Based on Noise-Adaptive Particle Filtering"
     inputs = [steering_angle, wf, wr]; wf -> front wheel rotation rate, wr -> rear wheel rotation rate
     states = [x, y, theta, vx, vy, omega]
+
+    Args:
+        param_dict (dict): dictionary of parameters needed for defining the dynamics
+        state_keys (list): list of states string that are observed by sensor
+        state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
+        acc_output (bool): include inertial accelerations as outputs?
+
     """
 
     def __init__(self, param_dict, state_keys, state_dot_keys=[], acc_output=False):
@@ -140,6 +193,17 @@ class FrontSteered(AbstractDyn):
         self.acc_output = acc_output
 
     def dxdt(self, state, u):
+        """
+        Obtain derivative of the state based on current state and input
+
+        Args:
+            state (numpy array [6 x 1]): current state of the system consisting of x, y, theta, vx, vy and omega
+            u (numpy array [3 x 1]): current input consisting of steering_angle, wf and wr
+
+        Returns:
+            state_dot (numpy array [6 x 1]): derivative of the states
+
+        """
         # get the inputs
         steering_angle = u[0]
         wf = u[1]
@@ -189,6 +253,17 @@ class FrontSteered(AbstractDyn):
         return np.array([[x_dot, y_dot, heading_dot, vx_dot, vy_dot, omega_dot]])
 
     def get_acc(self, state, u):
+        """
+        Retrieve inertial accelerations.
+
+        Args:
+            state (numpy array [6 x 1]): current state of the system consisting of x, y, theta, vx, vy and omega
+            u (numpy array [3 x 1]): current input consisting of steering_angle, wf and wr
+
+        Returns:
+            accelerations (numpy array [2 x 1]): inertial accelerations in x and y directions
+
+        """
         # get the inputs
         steering_angle = u[0]
         wf = u[1]
@@ -226,6 +301,19 @@ class FrontSteered(AbstractDyn):
         return np.array([[ax_inertial, ay_inertial]])
 
     def output_model(self, state, u):
+        """
+        Simulate the output of the system. Derives from AbstractDyn but optionally appending inertial
+        accelerations if user requires it.
+
+        Args:
+            state (numpy array [n x 1]): current state vector
+            u (*): current input
+
+        Returns:
+            output (numpy array [len(self.state_indices) + len(state_dot_indices) x 1]): observed state and 
+                state derivatives of the system
+
+        """
         if self.acc_output:
             return np.concatenate((super(FrontSteered, self).output_model(state, u), self.get_acc(state, u)[0]))
         else:
@@ -234,9 +322,18 @@ class FrontSteered(AbstractDyn):
 
 class RoverDyn(AbstractDyn):
     """
+    Class derived from AbstractDyn class
     model from: Michigan guys' RTD python repo
     inputs = [steering_angle, commanded velocity]
     states = [x, y, theta, vx]
+
+    Args:
+        param_dict (dict): dictionary of parameters needed for defining the dynamics
+        state_keys (list): list of states string that are observed by sensor
+        state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
+        expected_keys (list): list of parameters string that are expected to be present in the param_dict; defaults to None
+            when None is specified, the parameters are assumed to be c1-c9
+
     """
 
     def __init__(self, param_dict, state_keys, state_dot_keys=[], expected_keys=None):
@@ -254,6 +351,17 @@ class RoverDyn(AbstractDyn):
         self.num_in = 2
 
     def dxdt(self, state, u):
+        """
+        Obtain derivative of the state based on current state and input
+
+        Args:
+            state (numpy array [4 x 1]): current state of the system consisting of x, y, theta and vx
+            u (numpy array [2 x 1]): current input consisting of steering angle and commanded velocity
+
+        Returns:
+            state_dot (numpy array [4 x 1]): derivative of the states
+
+        """
         # get the inputs
         steering_angle = u[0]
         vx_cmd = u[1]
@@ -277,7 +385,17 @@ class RoverDyn(AbstractDyn):
 
     def cal_vxvy_from_coord(self, state, state_prev, dt, output=False):
         """
-        Calculate longitudinal and lateral velocity by rotating current position into the frame of previous position
+        Calculate longitudinal and lateral velocity by rotating current position into the frame of previous position.
+
+        Args:
+            state (numpy array [4 x nt]): state of the system at different time instances
+            state_prev (numpy array [4 x nt]): corresponding previous states of state
+            dt (numpy array [nt] or float): time step/difference between state and state_prev
+            output (bool): whether the state and state_prev are from the output of the system
+
+        Returns:
+            vxy (numpy array [2 x nt]): linear and lateral velocities at different time instances
+
         """
         if len(state.shape) == 1:
             state = state[:, np.newaxis]
@@ -306,9 +424,17 @@ class RoverDyn(AbstractDyn):
 
 class RoverPartialDynEst(RoverDyn):
     """
+    Class derived from RoverDyn class
     model from: same as RoverDyn but some parameters are the states themselves to be estimated online
     inputs = [steering_angle, commanded velocity]
     states = [x, y, theta, vx, ...]
+
+    Args:
+        param_dict (dict): dictionary of parameters needed for defining the dynamics
+        est_params (list): list of parameter strings to be estimated with the states
+        state_keys (list): list of states string that are observed by sensor
+        state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
+
     """
 
     def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[]):
@@ -337,6 +463,19 @@ class RoverPartialDynEst(RoverDyn):
         self.num_states += len(self.est_params)
 
     def dxdt(self, state, u):
+        """
+        Obtain derivative of the state based on current state and input similar to RoverDyn. Derivatives of
+        estimated parameters are zero, i.e. assuming they are constant and not drifting over time.
+
+        Args:
+            state (numpy array [4+len(self.est_params) x 1]): current state of the system consisting of x, y, theta, vx 
+                and estimated parameters
+            u (numpy array [2 x 1]): current input consisting of steering angle and commanded velocity
+
+        Returns:
+            state_dot (numpy array [4+len(self.est_params) x 1]): derivative of the states
+
+        """
         # put the parameters into the dictionary
         for i, est_param in enumerate(self.est_params):
             self.param_dict[est_param] = state[4+i]
@@ -350,6 +489,17 @@ def sample_input_rover(T, max_steering=30*math.pi/180.0, max_speed=5.0, cruise_t
     Create an example input vector for the rover dynamic model in which:
     (i) steering angle linearly increase to max and decrease back to zero 
     (ii) velocity linearly increase to max and decrease back to zero
+
+    Args:
+        T (numpy array [nt x 1]): time instances for generating the inputs
+        max_steering (float): maximum steering angle in radians to linearly increase from zero to; defaults to pi/6 radians
+        max_speed (float): maximum speed in m/s to linearly increase from zero to; defaults to 5 m/s
+        cruise_time (float): number of seconds to maintain maximum steering and speed before linearly decreasing 
+            back to zero; defaults to 2 s
+
+    Returns:
+        U (numpy array [2 x nt]): input consisting of steering angle and velocity at different time instances
+
     """
     # create input vector
     U = np.zeros((2, len(T)))
@@ -381,6 +531,18 @@ def sample_input_front_steered(T, max_w=45*math.pi/180.0, max_steering=20*math.p
     Create an example input vector for the front_steered dynamic model in which:
     (i) wheel rate linearly increase to max and decrease back to zero
     (ii) steering angle linearly increase to max and decrease back to zero 
+
+    Args:
+        T (numpy array [nt x 1]): time instances for generating the inputs
+        max_w (float): maximum wheel rate in rad/s to linearly increase from zero to; defaults to pi/4 rad/s
+        max_steering (float): maximum steering angle in radians to linearly increase from zero to; defaults to pi/9 radians
+        cruise_time (float): number of seconds to maintain maximum steering and speed before linearly decreasing 
+            back to zero; defaults to 2 s
+
+    Returns:
+        U (numpy array [3 x nt]): input consisting of steering angle, left and right wheel rates (assumed equal) at 
+            different time instances
+
     """
     # create input vector
     U = np.zeros((3, len(T)))
@@ -412,6 +574,10 @@ def sample_input_front_steered(T, max_w=45*math.pi/180.0, max_steering=20*math.p
 
 
 def test_rover_dyn():
+    """
+    Test function for the rover dynamics with trajectory plots and assert equivalence of RoverPartialDynEst and
+    RoverDyn in producing the same ground truth data.
+    """
     # assume parameter values in accordance to Michigan's rover
     param_dict = {'c1': 1.6615e-5, 'c2': -1.9555e-07, 'c3': 3.6190e-06, 'c4': 4.3820e-07,
                   'c5': -0.0811, 'c6': -1.4736, 'c7': 0.1257, 'c8': 0.0765, 'c9': -0.0140}
