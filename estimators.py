@@ -11,6 +11,15 @@ from collections import Iterable
 def sample_gaussian(mu, Sigma, N=1):
     """
     Draw N random row vectors from a Gaussian distribution
+
+    Args:
+        mu (numpy array [n x 1]): expected value vector
+        Sigma (numpy array [n x n]): covariance matrix
+        N (int): scalar number of samples
+
+    Returns:
+        M (numpy array [n x N]): samples from Gaussian distribtion
+
     """
 
     N = int(N)
@@ -27,6 +36,9 @@ def sample_gaussian(mu, Sigma, N=1):
 
 
 def kinematic_state_observer(initial_cond, yaw_rates, inertial_accs, long_vs, T, alpha):
+    """
+    Not working yet!
+    """
     num_sol = len(T)
     states = np.zeros((2, num_sol))
     states[:, 0] = np.squeeze(initial_cond[3:5])
@@ -61,8 +73,12 @@ def kinematic_state_observer(initial_cond, yaw_rates, inertial_accs, long_vs, T,
 class PointBasedFilter(object):
     """
     Class for performing UKF/CKF prediction or update
-    method-> The method for filtering algorithm, there are two choices: 'UKF' for unscented Filter and 'CKF' for Cubature Filter
-    order-> Order of accuracy for integration rule. Currently, there are two choices: 2 and 4
+
+    Args:
+        method (str): The method for filtering algorithm, there are two choices: 'UKF' for unscented Filter 
+            and 'CKF' for Cubature Filter
+        order (int): Order of accuracy for integration rule. Currently, there are two choices: 2 and 4
+
     """
 
     def __init__(self, method, order):
@@ -77,26 +93,34 @@ class PointBasedFilter(object):
 
     def predict_and_update(self, X, P, f, h, Q, R, u, y, additional_args_pm=[], additional_args_om=[]):
         """
-        X: expected value of the states (n x 1) array
-        P: covariance of the states (n x n) array
-        f: function handle for the process model; expected signature f(state, input, noise, ...)
-        h: function handle for the observation model; expected signature h(state, input, noise, ...)
-        Q: process model noise covariance in the prediction step (nq x nq) array
-        R: observation model noise covariance in the update step (nu x nu) array
-        u: current input required for function f & possibly function h
-        y: current measurement/output of the system (nu x 1) array
-        additional_args_pm: list of additional arguments to be passed to the process model during the prediction step
-        additional_args_om: list of additional arguments to be passed to the observation model during the update step
+        Perform one iteration of prediction and update.
+        algorithm reference: Algorithm 5.1, page 104 of "Compressed Estimation in Coupled High-dimensional Processes"
+
+        Args:
+            X (numpy array [n x 1]): expected value of the states
+            P (numpy array [n x n]): covariance of the states
+            f (function): function handle for the process model; expected signature f(state, input, noise, ...)
+            h (function): function handle for the observation model; expected signature h(state, input, noise, ...)
+            Q (numpy array [nq x nq]): process model noise covariance in the prediction step
+            R (numpy array [nr x nr]): observation model noise covariance in the update step
+            u (*): current input required for function f & possibly function h
+            y (numpy array [nu x 1]): current measurement/output of the system
+            additional_args_pm (list): list of additional arguments to be passed to the process model during the prediction step
+            additional_args_om (list): list of additional arguments to be passed to the observation model during the update step
+
+        Returns:
+            X (numpy array [n x 1]): expected value of the states after prediction and update
+            P (numpy array [n x n]): covariance of the states after prediction and update
 
         """
-        # create augmented system of the states and the noises
+        # create augmented system of the states and the noises (step 1 of algorithm 5.1, equation 5.42)
         n = len(X)
         nq = Q.shape[0]
         nr = R.shape[0]
         X1 = np.concatenate((X, np.zeros((nq, 1)), np.zeros((nr, 1))), axis=0)
         P1 = block_diag(P, Q, R)
 
-        # generate cubature/sigma points and the weights based on the method
+        # generate cubature/sigma points and the weights based on the method (steps 2-4 of algorithm 5.1)
         if self.method == 'UKF':
             if self.order == 2:
                 x, L, W, WeightMat = self.sigmas2(X1, P1)
@@ -108,35 +132,60 @@ class PointBasedFilter(object):
             elif self.order == 4:
                 x, L, W, WeightMat = self.cubature4(X1, P1)
 
-        # prediction step
+        # prediction step (step 5 of algorithm 5.1) by implementing equations 5.25, 5.34 and 5.35 (pages 105-106)
         ia = np.arange(n)
         ib = np.arange(n, n+nq)
         X, x, P, x1 = self.unscented_transformF(
             x, W, WeightMat, L, f, u, ia, ib, additional_args_pm)
 
-        # update step
+        # update step (step 6 of algorithm 5.1) by implementing equations 5.36-5.41 (page 106)
         if len(y):
             ip = np.arange(n+nq, n+nq+nr)
             Z, _, Pz, z2 = self.unscented_transformH(
                 x, W, WeightMat, L, h, u, ia, ip, len(y), additional_args_om)
-            # transformed cross-covariance
+            # transformed cross-covariance (equation 5.38)
             Pxy = np.matmul(np.matmul(x1, WeightMat), z2.T)
             # Kalman gain
             K = np.matmul(Pxy, np.linalg.inv(Pz))
-            # state update
+            # state update (equation 5.40)
             X += np.matmul(K, y - Z)
-            # covariance update
+            # covariance update (equation 5.41)
             P -= np.matmul(K, Pxy.T)
 
         return X, P
 
     def unscented_transformH(self, x, W, WeightMat, L, f, u, ia, iq, n, additional_args):
+        """
+        Function to propagate sigma/cubature points through observation function.
+
+        Args:
+            x (numpy array [n_a x L]): sigma/cubature points
+            W (numpy array [L x 1 or 1 x L]: 1D Weight array
+            WeightMat (numpy array [L x L]): weight matrix with weights of the points on the diagonal
+            L (int): number of points
+            f (function): function handle for the observation model; expected signature f(state, input, noise, ...)
+            u (?): current input required for function f
+            ia (numpy array [n_s x 1]): row indices of the states in sima/cubature points
+            iq (numpy array [n_q x 1]): row indices of the observation noise in sigma/cubature points
+            n (int): dimensionality of output or return from function f
+            additional_args (list): list of additional arguments to be passed to the observation model
+
+        Returns:
+            Y (numpy array [n x 1]): Expected value vector of the result from transformation function f
+            y (numpy array [n x L]): Transformed sigma/cubature points
+            P (numpy array [n x n]): Covariance matrix of the result from transformation function f
+            y1 (numpy array [n x L]): zero-mean Transformed sigma/cubature points
+
+        """
         Y = np.zeros((n, 1))
         y = np.zeros((n, L))
+        # Propagating sigma/cubature points through function (equation 5.36)
         for k in range(L):
             y[:, k] = f(x[ia, k], u, x[iq, k], *additional_args)
+            # Calculating mean (equation 5.37)
             Y += W.flat[k]*y[:, k:k+1]
 
+        # Calculating covariance (equation 5.39)
         y1 = y - Y
         P = np.matmul(np.matmul(y1, WeightMat), y1.T)
 
@@ -144,15 +193,36 @@ class PointBasedFilter(object):
 
     def unscented_transformF(self, x, W, WeightMat, L, f, u, ia, iq, additional_args):
         """
-        Function to propagate sigma/cubature points during the prediction step
+        Function to propagate sigma/cubature points through process model function.
+
+        Args:
+            x (numpy array [n_a x L]): sigma/cubature points
+            W (numpy array [L x 1 or 1 x L]: 1D Weight array of the sigma/cubature points
+            WeightMat (numpy array [L x L]): weight matrix with weights in W of the points on the diagonal
+            L (int): number of points
+            f (function): function handle for the process model; expected signature f(state, input, noise, ...)
+            u (?): current input required for function f
+            ia (numpy array [n_s x 1]): row indices of the states in sima/cubature points
+            iq (numpy array [n_q x 1]): row indices of the process noise in sigma/cubature points
+            additional_args (list): list of additional arguments to be passed to the process model
+
+        Returns:
+            Y (numpy array [n_s x 1]): Expected value vector of the result from transformation function f
+            y (numpy array [n_a x L]): Transformed sigma/cubature points
+            P (numpy array [n_s x n_s]): Covariance matrix of the result from transformation function f
+            y1 (numpy array [n_s x L]): zero-mean Transformed sigma/cubature points
+
         """
         order = len(ia)
         Y = np.zeros((order, 1))
         y = x
+        # Propagating sigma/cubature points through function (equation 5.25)
         for k in range(L):
             y[ia, k] = f(x[ia, k], u, x[iq, k], *additional_args)
+            # Calculating mean (equation 5.34)
             Y += W.flat[k]*y[np.arange(order), k:k+1]
 
+        # Calculating covariance (equation 5.35)
         y1 = y[np.arange(order), :] - Y
         P = np.matmul(np.matmul(y1, WeightMat), y1.T)
 
@@ -161,6 +231,18 @@ class PointBasedFilter(object):
     def sigmas2(self, X, P):
         """
         function to generate second order sigma points
+        reference: Appendix G.1 of "Compressed Estimation in Coupled High-dimensional Processes"
+
+        Args:
+            X (numpy array [n x 1]): mean of Gaussian distribution
+            P (numpy array [n x n]): covariance matrix of Gaussian distribution
+
+        Returns:
+            x (numpy array [n x L]): second order sigma point
+            L (int): number of sigma points
+            W (numpy array [1 x L]): 1D Weight array of sigma points
+            WeightMat (numpy array [L x L]): weight matrix with weights in W of the points on the diagonal
+
         """
         n = X.shape[0]
         # some constants based on augmented dimentionality
@@ -170,11 +252,11 @@ class PointBasedFilter(object):
             (np.array([[Params[0]]]), np.matlib.repmat(Params[1], 1, 2*n)), axis=1)
         WeightMat = np.diag(np.squeeze(W))
 
-        # first perform SVD to get the square root matrix
+        # first perform SVD to get the square root matrix (step 3 of algorithm 5.1, equation 5.22)
         U, D, _ = np.linalg.svd(P)
         sqP = np.matmul(U, np.diag(D**0.5))
 
-        # create sigma point set
+        # create sigma point set (step 2 of algorithm 5.1)
         temp = np.zeros((n, L))
         loc = np.arange(n)
         l_index = loc*L + loc + 1
@@ -182,6 +264,7 @@ class PointBasedFilter(object):
         l_index += n
         temp.flat[l_index] = -Params[2]
 
+        # step 4 of algorithm 5.1 equation 5.24
         Y = np.matlib.repmat(X, 1, L)
         x = Y + np.matmul(sqP, temp)
 
@@ -193,6 +276,21 @@ class PointBasedFilter(object):
     def sigmas4(self, X, P):
         """
         function to generate fourth order sigma points
+        Note: No analytical results exist for generating 4th order sigma points as it requires performing
+        non-linear least square (see Appendix G.2 of "Compressed Estimation in Coupled High-dimensional Processes".
+
+        A separate scheme is used here, see equation 5.20 instead.
+
+        Args:
+            X (numpy array [n x 1]): mean of Gaussian distribution
+            P (numpy array [n x n]): covariance matrix of Gaussian distribution
+
+        Returns:
+            x (numpy array [n x L]): fourth order sigma point
+            L (int): number of sigma points
+            W (numpy array [1 x L]): 1D Weight array of sigma points
+            WeightMat (numpy array [L x L]): weight matrix with weights in W of the points on the diagonal
+
         """
         n = X.shape[0]
         # some constants based on augmented dimensionality
@@ -201,11 +299,11 @@ class PointBasedFilter(object):
             (4-n)/18.0, 1, 2*n), np.matlib.repmat(1.0/36.0, 1, 2*n**2-2*n)), axis=1)
         WeightMat = np.diag(np.squeeze(W))
 
-        # first perform SVD to get the square root matrix
+        # first perform SVD to get the square root matrix (step 3 of algorithm 5.1, equation 5.22)
         U, D, _ = np.linalg.svd(P)
         sqP = np.matmul(U, np.diag(D**0.5))
 
-        # create first type of sigma point set
+        # create sigma point set (step 2 of algorithm 5.1)
         s = math.sqrt(3.0)
         temp = np.zeros((n, 2*n+1))
         loc = np.arange(n)
@@ -214,10 +312,11 @@ class PointBasedFilter(object):
         l_index += n
         temp.flat[l_index] = -s
 
+        # step 4 of algorithm 5.1 equation 5.24
         Y = np.matlib.repmat(X, 1, 2*n+1)
         x = Y + np.matmul(sqP, temp)
 
-        # create second type of sigma point: 2n**2 - 2n points based on (s2,s2) structure
+        # create second type of sigma point: 2n**2 - 2n points based on (s2,s2) structure (step 2 of algorithm 5.1)
         temp1 = np.zeros((n, 2*n**2 - 2*n))
         count = comb(n, 2, exact=True)
         loc = np.fromiter(itertools.chain.from_iterable(
@@ -229,6 +328,7 @@ class PointBasedFilter(object):
             temp1.flat[l_index[:, 1]] = (-1)**i[1]*s
             l_index += count
 
+        # step 4 of algorithm 5.1 equation 5.24
         Y = np.matlib.repmat(X, 1, 2*n**2 - 2*n)
         x = np.concatenate((x, Y + np.matmul(sqP, temp1)), axis=1)
 
@@ -241,6 +341,18 @@ class PointBasedFilter(object):
     def cubature2(self, X, P):
         """
         function to generate second order cubature points
+        reference: paper "Cubature Kalman Fitlers"
+
+        Args:
+            X (numpy array [n x 1]): mean of Gaussian distribution
+            P (numpy array [n x n]): covariance matrix of Gaussian distribution
+
+        Returns:
+            x (numpy array [n x L]): second order cubature point
+            L (int): number of cubature points
+            W (numpy array [1 x L]): 1D Weight array of cubature points
+            WeightMat (numpy array [L x L]): weight matrix with weights in W of the points on the diagonal
+
         """
         n = X.shape[0]
         # some constants based on augmented dimensionality
@@ -248,11 +360,11 @@ class PointBasedFilter(object):
         W = np.matlib.repmat(1.0/L, 1, L)
         WeightMat = np.diag(np.squeeze(W))
 
-        # first perform SVD to get the square root matrix
+        # first perform SVD to get the square root matrix (step 3 of algorithm 5.1, equation 5.22)
         U, D, _ = np.linalg.svd(P)
         sqP = np.matmul(U, np.diag(D**0.5))
 
-        # create sigma point set
+        # create sigma point set (step 2 of algorithm 5.1)
         s = math.sqrt(n)
         temp = np.zeros((n, L))
         loc = np.arange(n)
@@ -261,6 +373,7 @@ class PointBasedFilter(object):
         l_index += n
         temp.flat[l_index] = -s
 
+        # step 4 of algorithm 5.1 equation 5.24
         Y = np.matlib.repmat(X, 1, L)
         x = Y + np.matmul(sqP, temp)
 
@@ -272,6 +385,18 @@ class PointBasedFilter(object):
     def cubature4(self, X, P):
         """
         function to generate fourth order cubature points
+        reference: paper "High-degree cubature kalman filter"
+
+        Args:
+            X (numpy array [n x 1]): mean of Gaussian distribution
+            P (numpy array [n x n]): covariance matrix of Gaussian distribution
+
+        Returns:
+            x (numpy array [n x L]): fourth order cubature point
+            L (int): number of cubature points
+            W (numpy array [1 x L]): 1D Weight array of cubature points
+            WeightMat (numpy array [L x L]): weight matrix with weights in W of the points on the diagonal
+
         """
         n = X.shape[0]
         # some constants based on augmented dimensionality
@@ -280,11 +405,11 @@ class PointBasedFilter(object):
             n+2)**2), 1, 2*n), np.matlib.repmat(1.0/((n+2.0)**2), 1, 2*n**2-2*n)), axis=1)
         WeightMat = np.diag(np.squeeze(W))
 
-        # first perform SVD to get the square root matrix
+        # first perform SVD to get the square root matrix (step 3 of algorithm 5.1, equation 5.22)
         U, D, _ = np.linalg.svd(P)
         sqP = np.matmul(U, np.diag(D**0.5))
 
-        # create sigma point set
+        # create sigma point set (step 2 of algorithm 5.1)
         s = math.sqrt(n+2.0)
         temp = np.zeros((n, 2*n+1))
         loc = np.arange(n)
@@ -293,10 +418,11 @@ class PointBasedFilter(object):
         l_index += n
         temp.flat[l_index] = -s
 
+        # step 4 of algorithm 5.1 equation 5.24
         Y = np.matlib.repmat(X, 1, 2*n+1)
         x = Y + np.matmul(sqP, temp)
 
-        # create second type of sigma point: 2n**2 - 2n points based on (s2,s2) structure
+        # create second type of sigma point: 2n**2 - 2n points based on (s2,s2) structure (step 2 of algorithm 5.1)
         s = math.sqrt(n+2.0)/math.sqrt(2.0)
         temp1 = np.zeros((n, 2*n**2 - 2*n))
         count = comb(n, 2, exact=True)
@@ -309,6 +435,7 @@ class PointBasedFilter(object):
             temp1.flat[l_index[:, 1]] = (-1)**i[1]*s
             l_index += count
 
+        # step 4 of algorithm 5.1 equation 5.24
         Y = np.matlib.repmat(X, 1, 2*n**2 - 2*n)
         x = np.concatenate((x, Y + np.matmul(sqP, temp1)), axis=1)
 
@@ -319,6 +446,21 @@ class PointBasedFilter(object):
         return x, L, W, WeightMat
 
     def verifyTransformedSigma(self, x, WeightMat, X, P):
+        """
+        Verify if the transformed sigma/cubature point captures the mean and covariance of the 
+        target Gaussian distribution
+
+        Args:
+            x (numpy array [n x L]): sigma/cubature points
+            WeightMat (numpy array [L x L]): weight matrix with weights of the points on the diagonal
+            X (numpy array [n x 1]): mean of Gaussian distribution
+            P (numpy array [n x n]): covariance matrix of Gaussian distribution
+
+        Returns:
+            mean_close (bool): whether mean of the distibution is captured by the sigma/cubature points
+            cov_close (bool): whether covariance of the distibution is captured by the sigma/cubature points
+
+        """
         sigma_mean = np.zeros(X.shape)
         W = np.diag(WeightMat)
         for i in range(x.shape[1]):
@@ -333,6 +475,16 @@ class PointBasedFilter(object):
         return mean_close, cov_close
 
     def verifySigma(self, x, W, order=2):
+        """
+        Since originally the points of PBGF are generated from standard Gaussian distribution,
+        check if moments up to specified order are being captured. Raises error when mismatch is found.
+
+        Args:
+            x (numpy array [n x L]): sigma/cubature points
+            W (numpy array [1 x L or L x 1]): 1D Weight array of sigma/cubature points
+            order (int): moment order in which the sampled points are generated from
+
+        """
         n, L = x.shape
 
         # check moment and cross moment of each order
@@ -358,7 +510,14 @@ class PointBasedFilter(object):
 
     def stdGaussMoment(self, order):
         """
-        Calculate order-th moment of univariate std Gaussian distribution (zero mean, 1 std)
+        Calculate order-th moment of univariate standard Gaussian distribution (zero mean, 1 std)
+
+        Args:
+            order (int): scalar moment order
+
+        Returns:
+            prod (int): requested order-th moment of standard Gaussian distribution
+
         """
         if order % 2:
             return 0.0
@@ -371,6 +530,18 @@ class PointBasedFilter(object):
 
 
 def findCombinationsUtil(arr, index, num, reducedNum, output):
+    """
+    Find all combinations of < n numbers from 1 to num with repetition that add up to reducedNum 
+
+    Args:
+        arr (list size n): current items that add up to <= reducedNum (in the 0th recursion)
+        index (int): index of the next slot of arr list
+        num (int): limit of what numbers to be chosen from -> [1, num]
+        reducedNum (int): remaining number to add up to required sum
+        output (list): for appending the results to
+
+    """
+
     # Base condition
     if reducedNum < 0:
         return
@@ -395,11 +566,17 @@ def findCombinationsUtil(arr, index, num, reducedNum, output):
 def fit_data_rover(states, U, dt, vxdot=np.array([]), yawrate=np.array([]), vy=np.array([])):
     """
     Perform LS and NLS fitting parameters estimation for the rover dynamics (c1-c9)
-    states: x, y, theta and vx at different time instances (4 x nt array)
-    U: input to the model at different time instances consisting of steering angle and commanded velocity (2 x nt array)
-    vxdot: optionally, linear longitudinal acceleration at different time instances (nt x 1 array)
-    yawrate: optionally, yaw rate at different time instances (nt x 1 array)
-    vy: optionally, lateral velocity if observed (nt x 1 array)
+
+    Args:
+        states (numpy array [4 x nt]): rover states consisting of x, y, theta and vx at different time instances
+        U (numpy array [2 x nt]): input to the model at different time instances consisting of steering angle and commanded velocity
+        vxdot (numpy array [nt]): optionally, linear longitudinal acceleration at different time instances
+        yawrate (numpy array [nt]): optionally, yaw rate at different time instances
+        vy (numpy array [nt]): optionally, lateral velocity if observed
+
+    Returns:
+        parameters (list): consists of parameters c1-c9 in that order
+
     """
 
     parameters = [0]*9
@@ -458,18 +635,30 @@ def fit_data_rover(states, U, dt, vxdot=np.array([]), yawrate=np.array([]), vy=n
 def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, additional_args_pm=[], additional_args_om=[]):
     """
     Retrieve ground truth, initial and output data (SNLDS: Stochastic non-linear dynamic system)
-    z0: initial ground truth condition (n x 1 array)
-    U: inputs for the process and observation model (nu x nt array)
-    nt: number of simulation steps (scalar)
-    f: function handle for one-time step forward propagating the state; expected signature f(state, input, noise, ...)
-    h: function handle for retrieving the outputs of the system as a function of system states;
-       expected signature h(state, input, noise, ...)
-    num_out: number of outputs from function h (scalar)
-    Q: noise covariance matrix for additive noise in the stochastic model f (n x n array)
-    P0: initial covariance for the initial estimate around the ground truth (n x n array)
-    R: covariance matrix of additive noise in h function (num_out x num_out array)
-    additional_args_pm: list of additional arguments to be passed to the process model during the prediction step
-    additional_args_om: list of additional arguments to be passed to the observation model during the prediction step
+
+    Args:
+        z0 (numpy array [n x 1]): initial ground truth condition
+        U (numpy array [nu x nt]): inputs for the process and observation model
+        nt (int): number of simulation steps
+        f (function): function handle for one-time step forward propagating the state; expected signature f(state, input, noise, ...)
+        h (function): function handle for retrieving the outputs of the system as a function of system states;
+            expected signature h(state, input, noise, ...)
+        num_out (int): number of outputs from function h
+        Q (numpy array [nq x nq]): noise covariance matrix involved in the stochastic model f
+        P0 (numpy array [n x n]): initial covariance for the initial estimate around the ground truth
+        R (numpy array [nr x nr]): covariance matrix of the noise involved in h function
+        additional_args_pm (list): list of additional arguments to be passed to function f
+        additional_args_om (list): list of additional arguments to be passed to function h
+
+    Returns:
+        gt_states (numpy array [n x nt]): ground truth states at different time instances
+        initial_cond (numpy array [n x 1]): initial condition from Gaussian distribution with mean z0 and covariance P0
+        outputs (numpy array [num_out x nt]): simulated outputs of the system
+        additional_args_pm_array (numpy array [len(additional_args_pm) x nt]): additional arguments to be passed to 
+            function f at each time instant
+        additional_args_om_array (numpy array [len(additional_args_om) x nt]): additional arguments to be passed to
+            function h at each time instant
+
     """
     if not len(U):
         U = np.zeros((0, nt))
@@ -533,7 +722,14 @@ def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, additional_ar
 
 def test_pbgf_linear(n=10, m=5, nt=10):
     """
-    Test the PointBasedFilter against KF when problem is linear
+    Test the PointBasedFilter against KF when problem is linear. Raises error when mean and covariance from
+    PBGF differs from that of KF.
+
+    Args:
+        n (int): dimensionality of problem; defaults to 10
+        m (int): number of outputs which are randomly selected from the states; defaults to 5
+        nt (int): number of filtering iterations; defaults to 10
+
     """
     # control random seed generator
     np.random.seed(0)
@@ -605,9 +801,17 @@ def test_pbgf_linear(n=10, m=5, nt=10):
     plt.show()
 
 
-def test_pbgf_1d_linear(gt_const=10.0, initial_cov=10.0, q_cov=1e-2, r_cov=1, nt=50):
+def test_pbgf_1d_linear(gt_const=10.0, initial_cov=10.0, q_cov=1e-2, r_cov=1.0, nt=50):
     """
-    estimate a random constant
+    Test the PBGF against KF when problem is linear. This problem is one-dimensional estimate of a random constant.
+
+    Args:
+        gt_const (float): parameter to be estimated; defaults to 10.0
+        initial_cov (float): initial uncertainty of gt_const; defaults to 10.0
+        q_cov (float): stochastic noise for evolution of the parameter; defaults to 1e-2, value of 0 implies parameter is constant
+        r_cov (float): observation noise of the parameter; defaults to 1.0
+        nt (int): number of filtering iterations; defaults to 50
+
     """
     # control random seed generator
     np.random.seed(0)
