@@ -872,7 +872,7 @@ def test_pbgf_1d_linear(gt_const=10.0, initial_cov=10.0, q_cov=1e-2, r_cov=1.0, 
 
     import matplotlib.pyplot as plt
     plt.plot(est_history, label='est_voltage')
-    plt.plot(x_gt[0,:], linestyle='--', label='real_voltage')
+    plt.plot(x_gt[0, :], linestyle='--', label='real_voltage')
     plt.plot(mse, marker='x', label='mse')
     plt.plot(trace, marker='o', label='trace')
     plt.grid(True, "both")
