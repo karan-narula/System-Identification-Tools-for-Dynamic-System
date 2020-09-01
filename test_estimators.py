@@ -11,7 +11,15 @@ from estimators import kinematic_state_observer, PointBasedFilter, fit_data_rove
 
 def plot_stuff(dynamic_obj, est_states, num_row=1):
     """
-    Plot 2 figures: 1 -> estimated parameters vs gt, 2-> main dynamic states such as trajectory, heading, etc
+    Useful function for plotting stuff. It plots 2 figures: 1 -> estimated parameters vs gt,
+    2-> main dynamic states such as trajectory, heading, etc
+
+    Args:
+        dynamic_obj (RoverPartialDynEst obj): dynamic object
+        est_states (numpy array [4+len(dynamic_obj.est_params) x nt]): estimated states of the dynamic model,
+            same shape as dynamic_obj.gt_states
+        num_row (int): number of rows of subplots in figure 1
+
     """
     # first figure for the parameters
     num_est_params = len(dynamic_obj.est_params)
@@ -64,6 +72,52 @@ def plot_stuff(dynamic_obj, est_states, num_row=1):
 
 
 def simulate_rover_data(param_dict, U, T, seed=0, std_x=0.0, std_y=0.0, std_theta=0.0, std_vx=0.0, std_x_out=1e-1, std_y_out=1e-1, std_theta_out=1.0, std_vx_out=0.1, std_x_dot_out=1e-1, std_y_dot_out=1e-1, std_theta_dot_out=1.0, std_vx_dot_out=1e-1, est_params=['c8', 'c9'], output_keys=['x', 'y', 'theta', 'vx'], output_dot_keys=[], init_state_cov=0.0, init_param_cov=0.0):
+    """
+    Simulate ground truth, initial condition and output data for rover dynamics.
+
+    Args:
+        param_dict (dict): dictionary of parameters needed for defining the dynamics; should contain c1-c9 keys
+        U (numpy array [2 x nt]): input consisting of steering angle and velocity at different time instances
+        T (numpy array [nt]): time instances corresponding to the input U
+        seed (int): seed for the random generator for repeatability of the tests; defaults to 0
+        std_x (float): standard deviation in metres for additive noise for evolution model of state x;
+            defaults to 1e-1 metres
+        std_y (float): standard deviation in metres for additive noise for evolution model of state y;
+            defaults to 1e-1 metres
+        std_theta (float): standard deviation in degrees for additive noise for evolution model of state theta;
+            defaults to 1.0 degrees
+        std_vx (float): standard deviation in m/s for additive noise for evolution model of state vx;
+            defaults to 0.1 m/s
+        std_x_out (float): standard deviation in metres for additive noise for observation of state x;
+            defaults to 1e-1 metres
+        std_y_out (float): standard deviation in metres for additive noise for observation of state y;
+            defaults to 1e-1 metres
+        std_theta_out (float): standard deviation in degrees for additive noise for observation of state theta;
+            defaults to 1.0 degrees
+        std_vx_out (float): standard deviation in m/s for additive noise for observation of rate of change of state vx;
+            defaults to 0.1 m/s
+        std_x_dot_out (float): standard deviation in m/s for additive noise for observation of rate of change of state x;
+            defaults to 1e-1 m/s
+        std_y_dot_out (float): standard deviation in m/s for additive noise for observation of rate of change of state y;
+            defaults to 1e-1 m/s
+        std_theta_dot_out (float): standard deviation in deg/s for additive noise for observation of rate of
+            change of state theta; defaults to 1.0 deg/s
+        std_vx_dot_out (float): standard deviation in m/s^2 for additive noise for observation of rate of change of
+            state vx; defaults to 0.1 m/s^2
+        est_params (list): list of parameter strings to be estimated; must be from c1-c9; defaults to ['c8', 'c9']
+        output_keys (list): list of state strings that are observed; must be from list ['x', 'y', 'theta', 'vx'];
+            defaults to ['x', 'y', 'theta', 'vx']
+        output_dot_keys (list): list of state derivative strings that are observed; must be from list ['x', 'y', 'theta', 'vx'];
+            defaults to empty
+        init_state_cov (list or float): if list must be of size 4; covariance of initial condition for the dynamic states;
+            defaults to 0.0
+        init_param_cov (list or float): if list must be of size len(est_params); covariance of initial condition for the parameters;
+            defaults to 0.0
+
+    Returns:
+        dynamic_obj (RoverPartialDynEst obj): dynamic object
+
+    """
     # check if expected inputs are iterable, if not convert to as such
     if not isinstance(est_params, Iterable):
         est_params = [est_params]
@@ -135,7 +189,17 @@ def simulate_rover_data(param_dict, U, T, seed=0, std_x=0.0, std_y=0.0, std_thet
 def simulate_rover_data_wrapper(est_params, output_keys, output_dot_keys, seed=0):
     """
     Just calls simulate_rover_data with parameters highlighted here.
-    To see the modification to tests, parameters can just be modified in this file.
+    To see the modification to tests, parameters can just be modified in this function.
+
+    Args:
+        est_params (list): list of parameter strings to be estimated; must be from c1-c9; defaults to ['c8', 'c9']
+        output_keys (list): list of state strings that are observed; must be from list ['x', 'y', 'theta', 'vx']
+        output_dot_keys (list): list of state derivative strings that are observed; must be from list ['x', 'y', 'theta', 'vx']
+        seed (int): seed for the random generator for repeatability of the tests; defaults to 0
+
+    Returns:
+        dynamic_obj (RoverPartialDynEst obj): dynamic object
+
     """
     # ground truth parameters
     param_dict = ODict([('c1', 1.5), ('c2', 0.2), ('c3', 2.35), ('c4', 0.1),
@@ -170,8 +234,18 @@ def simulate_rover_data_wrapper(est_params, output_keys, output_dot_keys, seed=0
 
 def create_filtered_estimates(dynamic_obj, method='CKF', order=2):
     """
-    Generate mean and covariance of filtered distribution at various times for the problem defined by:
-    dynamic_obj: source of information for the filter
+    Generate mean and covariance of filtered distribution at various times for the problem defined by the dynamic object.
+
+    Args:
+        dynamic_obj (obj derived from AbstractDyn): dynamic object encapsulating source of information for the filter
+        method (str): The method for filtering algorithm, see estimators.py for the methods currently implemented; defaults to 'CKF'
+        order (int): Order of accuracy for integration rule, see estimators.py for orders currently implemented; defaults to 2
+
+    Returns:
+        est_states (numpy array [dynamic_obj.num_states x nt]): filtered mean estimates of the states at different time instances
+        cov_states (numpy array [dynamic_obj.num_states x dynamic_obj.num_states x nt]): filtered covariance of the states
+            at different time instances
+
     """
 
     # create instance of the filter
@@ -192,6 +266,15 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2):
 
 
 def test_fit_data_rover(num_mc=100, back_rotate=False):
+    """
+    Test the function fit_data_rover for a specific configuration for a number of times. Generates various plots to
+    see MSE at various times and how well trajectory fits with the estimated parameters.
+
+    Args:
+        num_mc (int): number of monte carlo experiment to perform
+        back_rotate (bool): produce linear and lateral velocities from rotating state coordinates?
+
+    """
     # get data
     est_params = []
     output_keys = ['x', 'y', 'theta', 'vx']
@@ -271,6 +354,9 @@ def test_fit_data_rover(num_mc=100, back_rotate=False):
 
 
 def test_pbgf():
+    """
+    Test the PBGF in estimating the parameters and states.
+    """
     # get data
     est_params = ['c8', 'c9']
     output_keys = ['x', 'y']
@@ -288,7 +374,11 @@ def test_pbgf():
 if __name__ == '__main__':
     test_fit_data_rover(back_rotate=False)
     test_pbgf()
-else:
+
+
+"""
+Testing kinematic observer (Not working yet!)
+
     # control random seed generator
     np.random.seed(0)
 
@@ -376,3 +466,4 @@ else:
     plt.ylabel('V (m/s)')
 
     plt.show()
+"""
