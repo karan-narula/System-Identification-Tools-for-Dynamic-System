@@ -563,9 +563,119 @@ def findCombinationsUtil(arr, index, num, reducedNum, output):
         findCombinationsUtil(arr, index+1, num, reducedNum-k, output)
 
 
+def fit_data_rover_dynobj(dynamic_obj, vy=np.array([]), back_rotate=False):
+    """
+    Perform LS and NLS fitting parameters estimation for the rover dynamics (c1-c9) using dynamic object.
+
+    Args:
+        dynamic_obj (RoverPartialDynEst or RoverDyn obj): dynamic object
+        vy (numpy array [nt]): optionally, lateral velocity if observed; defaults to empty
+        back_rotate (bool): produce linear and lateral velocities from rotating state coordinates? defaults to False
+
+    Returns:
+        parameters (list): consists of parameters c1-c9 in that order
+    """
+
+    parameters = [0]*9
+
+    # check if we have access to longitudinal velocity
+    if dynamic_obj.state_dict['vx'] not in dynamic_obj.state_indices or back_rotate:
+        assert dynamic_obj.state_dict['x'] in dynamic_obj.state_indices and dynamic_obj.state_dict[
+            'y'] in dynamic_obj.state_indices, "No source for vehicle coordinates from output data"
+        vx = dynamic_obj.cal_vxvy_from_coord(
+            dynamic_obj.outputs[:, 1:], dynamic_obj.outputs[:, :-1], np.diff(dynamic_obj.T), output=True)[0, :]
+    else:
+        vx = dynamic_obj.outputs[dynamic_obj.state_indices.index(
+            dynamic_obj.state_dict['vx']), :]
+
+    # first fit the longitudinal acceleration
+    if dynamic_obj.state_dict['vx'] in dynamic_obj.state_dot_indices:
+        vx_dot_ind = len(dynamic_obj.state_indices) + \
+            dynamic_obj.state_dot_indices.index(dynamic_obj.state_dict['vx'])
+        vxdot = dynamic_obj.outputs[vx_dot_ind, :]
+    else:
+        dts = np.diff(dynamic_obj.T)
+        if len(vx) < len(dynamic_obj.T):
+            dts = dts[:len(vx)-1]
+        vxdot = np.diff(vx)/dts
+    last_ind = min(len(vx), len(vxdot))
+
+    diff = np.reshape(vx[:last_ind] -
+                      dynamic_obj.U[1, :last_ind], [-1, 1])
+    A_long_accel = np.concatenate(
+        (np.ones((len(vxdot[:last_ind]), 1)), diff, np.square(diff)), axis=1)
+    parameters[4:7] = np.linalg.lstsq(
+        A_long_accel, vxdot[:last_ind, np.newaxis], rcond=None)[0][:, 0].tolist()
+
+    # fitting for yaw rate
+    if dynamic_obj.state_dict['theta'] in dynamic_obj.state_dot_indices:
+        theta_dot_ind = len(dynamic_obj.state_indices) + \
+            dynamic_obj.state_dot_indices.index(
+                dynamic_obj.state_dict['theta'])
+        thetadot = dynamic_obj.outputs[theta_dot_ind, :]
+    else:
+        theta_ind = dynamic_obj.state_indices.index(
+            dynamic_obj.state_dict['theta'])
+        thetadot = np.diff(
+            dynamic_obj.outputs[theta_ind, :])/np.diff(dynamic_obj.T)
+    last_ind = min(len(thetadot), len(vx))
+
+    def nls_yawrate(x, yaw_rate, steering_cmd, vx):
+        return yaw_rate - np.tan(x[0]*steering_cmd + x[1])*vx/(x[2] + x[3]*vx**2)
+
+    x0 = np.array([1, 0, 1.775, 0])
+    res_l = least_squares(nls_yawrate, x0, args=(
+        thetadot[:last_ind], dynamic_obj.U[0, :last_ind], vx[:last_ind]))
+    parameters[:4] = res_l.x
+
+    # calculate lateral velocity
+    if vy.shape[0] == 0 and back_rotate:
+        assert dynamic_obj.state_dict['x'] in dynamic_obj.state_indices and dynamic_obj.state_dict[
+            'y'] in dynamic_obj.state_indices, "No source for vehicle coordinates from output data"
+        vy = dynamic_obj.cal_vxvy_from_coord(
+            dynamic_obj.outputs[:, 1:], dynamic_obj.outputs[:, :-1], np.diff(dynamic_obj.T), output=True)[1, :]
+
+    # depending on availability of vy, perform NLS or LS
+    if vy.shape[0] == 0:
+        assert dynamic_obj.state_dict['x'] in dynamic_obj.state_indices and dynamic_obj.state_dict[
+            'y'] in dynamic_obj.state_indices, "No source for vehicle coordinates from output data"
+
+        x_ind = dynamic_obj.state_indices.index(dynamic_obj.state_dict['x'])
+        y_ind = dynamic_obj.state_indices.index(dynamic_obj.state_dict['y'])
+        theta_ind = dynamic_obj.state_indices.index(
+            dynamic_obj.state_dict['theta'])
+
+        xdot = np.diff(dynamic_obj.outputs[x_ind, :])/np.diff(dynamic_obj.T)
+        ydot = np.diff(dynamic_obj.outputs[y_ind, :])/np.diff(dynamic_obj.T)
+        theta = dynamic_obj.outputs[theta_ind, :]
+
+        last_ind = min(len(xdot), len(vx), len(theta), len(thetadot))
+
+        def nls_xy(params, xdot, ydot, vx, yaw, yaw_rate):
+            vy = yaw_rate*(params[0] + params[1]*vx**2)
+            res_x = xdot - (vx*np.cos(yaw) - vy*np.sin(yaw))
+            res_y = ydot - (vx*np.sin(yaw) + vy*np.cos(yaw))
+            return np.concatenate((res_x, res_y)).flatten()
+
+        x0 = np.array([0.1, 0.1])
+        res_l = least_squares(nls_xy, x0, args=(
+            xdot[:last_ind], ydot[:last_ind], vx[:last_ind], theta[:last_ind], thetadot[:last_ind]))
+        parameters[7:9] = res_l.x
+    else:
+        # LS fitting based on lateral velocity
+        last_ind = min(len(thetadot), len(vx), len(vy))
+        prod = thetadot[:last_ind]*(vx[:last_ind]**2)
+        A_lat_vel = np.concatenate(
+            (thetadot[:last_ind, np.newaxis], prod[:, np.newaxis]), axis=1)
+        parameters[7:9] = np.linalg.lstsq(
+            A_lat_vel, vy[:last_ind, np.newaxis], rcond=None)[0][:, 0].tolist()
+
+    return parameters
+
+
 def fit_data_rover(states, U, dt, vxdot=np.array([]), yawrate=np.array([]), vy=np.array([])):
     """
-    Perform LS and NLS fitting parameters estimation for the rover dynamics (c1-c9)
+    Perform LS and NLS fitting parameters estimation for the rover dynamics (c1-c9).
 
     Args:
         states (numpy array [4 x nt]): rover states consisting of x, y, theta and vx at different time instances

@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from car_dynamics import sample_input_front_steered, FrontSteered, sample_input_rover, RoverPartialDynEst
-from estimators import kinematic_state_observer, PointBasedFilter, fit_data_rover
+from estimators import kinematic_state_observer, PointBasedFilter, fit_data_rover, fit_data_rover_dynobj
 
 
 def plot_stuff(dynamic_obj, est_states, num_row=1):
@@ -311,8 +311,9 @@ def test_fit_data_rover(num_mc=100, back_rotate=False):
                 dynamic_obj.outputs, dynamic_obj.U, dt, vy=vy)
         else:
             # LS + NLS
-            parameters = fit_data_rover(
-                dynamic_obj.outputs, dynamic_obj.U, dt)
+            #parameters = fit_data_rover(
+            #    dynamic_obj.outputs, dynamic_obj.U, dt)
+            parameters = fit_data_rover_dynobj(dynamic_obj)
 
         # forward integrate the model with new parameters
         for key, parameter in zip(dynamic_obj.param_dict, parameters):
