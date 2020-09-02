@@ -383,7 +383,7 @@ class RoverDyn(AbstractDyn):
 
         return np.array([[x_dot, y_dot, heading_dot, vx_dot]])
 
-    def cal_vxvy_from_coord(self, state, state_prev, dt, output=False):
+    def cal_vxvy_from_coord(self, state, state_prev, dt, output=False, internal_ind=True, x_ind=0, y_ind=1, theta_ind=2):
         """
         Calculate longitudinal and lateral velocity by rotating current position into the frame of previous position.
 
@@ -392,6 +392,10 @@ class RoverDyn(AbstractDyn):
             state_prev (numpy array [4 x nt]): corresponding previous states of state
             dt (numpy array [nt] or float): time step/difference between state and state_prev
             output (bool): whether the state and state_prev are from the output of the system
+            internal_ind (bool): use internal indices for determining rows for x, y and theta data? defaults to True
+            x_ind (int): row index for x coordinate of state and state_prev
+            y_ind (int): row index for y coordinate of state and state_prev
+            theta_ind (int): row index for theta coordinate of state and state_prev
 
         Returns:
             vxy (numpy array [2 x nt]): linear and lateral velocities at different time instances
@@ -402,14 +406,15 @@ class RoverDyn(AbstractDyn):
         if len(state_prev.shape) == 1:
             state_prev = state_prev[:, np.newaxis]
 
-        if output:
-            x_ind = self.state_indices.index(self.state_dict['x'])
-            y_ind = self.state_indices.index(self.state_dict['y'])
-            theta_ind = self.state_indices.index(self.state_dict['theta'])
-        else:
-            x_ind = self.state_dict['x']
-            y_ind = self.state_dict['y']
-            theta_ind = self.state_dict['theta']
+        if internal_ind:
+            if output:
+                x_ind = self.state_indices.index(self.state_dict['x'])
+                y_ind = self.state_indices.index(self.state_dict['y'])
+                theta_ind = self.state_indices.index(self.state_dict['theta'])
+            else:
+                x_ind = self.state_dict['x']
+                y_ind = self.state_dict['y']
+                theta_ind = self.state_dict['theta']
 
         prev_ang = state_prev[theta_ind, :]
         R = np.array([[np.cos(prev_ang), np.sin(prev_ang)],
