@@ -91,7 +91,7 @@ class PointBasedFilter(object):
         self.method = method
         self.order = order
 
-    def predict_and_update(self, X, P, f, h, Q, R, u, y, additional_args_pm=[], additional_args_om=[]):
+    def predict_and_update(self, X, P, f, h, Q, R, u, y, additional_args_pm=[], additional_args_om=[], predict_flag=True):
         """
         Perform one iteration of prediction and update.
         algorithm reference: Algorithm 5.1, page 104 of "Compressed Estimation in Coupled High-dimensional Processes"
@@ -107,6 +107,7 @@ class PointBasedFilter(object):
             y (numpy array [nu x 1]): current measurement/output of the system
             additional_args_pm (list): list of additional arguments to be passed to the process model during the prediction step
             additional_args_om (list): list of additional arguments to be passed to the observation model during the update step
+            predict_flag (bool): perform prediction? defaults to true
 
         Returns:
             X (numpy array [n x 1]): expected value of the states after prediction and update
@@ -132,11 +133,12 @@ class PointBasedFilter(object):
             elif self.order == 4:
                 x, L, W, WeightMat = self.cubature4(X1, P1)
 
-        # prediction step (step 5 of algorithm 5.1) by implementing equations 5.25, 5.34 and 5.35 (pages 105-106)
-        ia = np.arange(n)
-        ib = np.arange(n, n+nq)
-        X, x, P, x1 = self.unscented_transformF(
-            x, W, WeightMat, L, f, u, ia, ib, additional_args_pm)
+        if predict_flag:
+            # prediction step (step 5 of algorithm 5.1) by implementing equations 5.25, 5.34 and 5.35 (pages 105-106)
+            ia = np.arange(n)
+            ib = np.arange(n, n+nq)
+            X, x, P, x1 = self.unscented_transformF(
+                x, W, WeightMat, L, f, u, ia, ib, additional_args_pm)
 
         # update step (step 6 of algorithm 5.1) by implementing equations 5.36-5.41 (page 106)
         if len(y):
