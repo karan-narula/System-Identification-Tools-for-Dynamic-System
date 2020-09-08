@@ -273,10 +273,10 @@ class FrontSteered(AbstractDyn):
         wr = u[2]
 
         # get the states
-        heading = state[2]
-        vx = state[3]
-        vy = state[4]
-        omega = state[5]
+        heading = state[self.state_dict['theta']]
+        vx = state[self.state_dict['vx']]
+        vy = state[self.state_dict['vy']]
+        omega = state[self.state_dict['omega']]
 
         # calculate lateral tire forces
         if vx != 0.0:
@@ -430,8 +430,8 @@ class RoverDyn(AbstractDyn):
         vx_cmd = u[1]
 
         # get the states
-        theta = state[2]
-        vx = state[3]
+        theta = state[self.state_dict['theta']]
+        vx = state[self.state_dict['vx']]
 
         ang_rate = math.tan(self.param_dict['c1']*steering_angle + self.param_dict['c2'])*vx/(
             self.param_dict['c3'] + self.param_dict['c4']*vx**2)
