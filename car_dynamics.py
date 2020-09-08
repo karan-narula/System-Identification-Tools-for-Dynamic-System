@@ -447,8 +447,63 @@ class RoverDyn(AbstractDyn):
         return np.array([[x_dot, y_dot, heading_dot, vx_dot]])
 
 
+def partial_init(obj, class_type, expected_keys, est_params, param_dict, state_keys, state_dot_keys):
+    """
+    Function to help initialise an Estimate class deriving from the dynamic class.
+
+    Args:
+        obj (Est obj): object in which the initialisation is being performed (self)
+        class_type (obj type): pass in the class of the object to be used when invoking super
+        expected_keys (list): list of all parameters string that are expected to be present in the param_dict
+        est_params (list): list of parameter strings to be estimated with the states
+        param_dict (dict): dictionary of parameters needed for defining the dynamics
+        state_keys (list): list of states string that are observed by sensor
+        state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
+
+    """
+    # check if est_params are in expected keys
+    for est_param in est_params:
+        assert est_param in expected_keys, "Parameter {} to be estimated is not in expected keys".format(
+            est_param)
+        expected_keys.remove(est_param)
+
+    # remove parameters to be estimated from dictionary
+    pruned_param_dict = param_dict.copy()
+    for est_param in est_params:
+        if est_param in pruned_param_dict:
+            del pruned_param_dict[est_param]
+
+    super(class_type, obj).__init__(pruned_param_dict, state_keys,
+                                    state_dot_keys=state_dot_keys, expected_keys=expected_keys)
+
+    # append state dictionary
+    for i, est_param in enumerate(est_params):
+        obj.state_dict[est_param] = obj.num_states + i
+
+    # dimensionalities of different things
+    obj.est_params = list(est_params)
+    obj.num_dyn_states = obj.num_states
+    obj.num_states += len(obj.est_params)
 
 
+def partial_dxdt(obj, class_type, state, u):
+    """
+    Function to help calculate derivative of an Estimate class deriving from dynamic class. It does the calculation by the getting
+    the states' derivatives from its parent's class and assuming that the estimated parameters are stationary (not drifting over time).
+
+    Args:
+        obj (Est obj): object in which the initialisation is being performed (self)
+        class_type (obj type): pass in the class of the object to be used when invoking super
+        state (numpy array [num_states x 1]): current state of the system
+        u (numpy array [num_in x 1]): current input
+
+    """
+    # put the parameters into the dictionary
+    for i, est_param in enumerate(obj.est_params):
+        obj.param_dict[est_param] = state[obj.num_dyn_states+i]
+
+    state_dot = super(class_type, obj).dxdt(state, u)
+    return np.concatenate((state_dot, np.zeros((1, len(obj.est_params)))), axis=1)
 
 
 class RoverPartialDynEst(RoverDyn):
@@ -468,28 +523,9 @@ class RoverPartialDynEst(RoverDyn):
 
     def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[]):
         expected_keys = ["c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"]
-        # check if est_params are in expected keys
-        for est_param in est_params:
-            assert est_param in expected_keys, "Parameter {} to be estimated is not in expected keys".format(
-                est_param)
-            expected_keys.remove(est_param)
 
-        # remove parameters to be estimated from dictionary
-        pruned_param_dict = param_dict.copy()
-        for est_param in est_params:
-            if est_param in pruned_param_dict:
-                del pruned_param_dict[est_param]
-
-        super(RoverPartialDynEst, self).__init__(pruned_param_dict,
-                                                 state_keys, state_dot_keys=state_dot_keys, expected_keys=expected_keys)
-
-        # append state dictionary
-        for i, est_param in enumerate(est_params):
-            self.state_dict[est_param] = self.num_states + i
-
-        # dimensionalities of different things
-        self.est_params = list(est_params)
-        self.num_states += len(self.est_params)
+        partial_init(self, RoverPartialDynEst, expected_keys,
+                     est_params, param_dict, state_keys, state_dot_keys)
 
     def dxdt(self, state, u):
         """
@@ -505,12 +541,7 @@ class RoverPartialDynEst(RoverDyn):
             state_dot (numpy array [4+len(self.est_params) x 1]): derivative of the states
 
         """
-        # put the parameters into the dictionary
-        for i, est_param in enumerate(self.est_params):
-            self.param_dict[est_param] = state[4+i]
-
-        state_dot = super(RoverPartialDynEst, self).dxdt(state, u)
-        return np.concatenate((state_dot, np.zeros((1, len(self.est_params)))), axis=1)
+        return partial_dxdt(self, RoverPartialDynEst, state, u)
 
 
 def sample_linear(T, cruise_time, *args):
