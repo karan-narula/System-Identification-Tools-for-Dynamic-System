@@ -582,8 +582,7 @@ def fit_data_rover_dynobj(dynamic_obj, vy=np.array([]), back_rotate=False):
     if dynamic_obj.state_dict['vx'] not in dynamic_obj.state_indices or back_rotate:
         assert dynamic_obj.state_dict['x'] in dynamic_obj.state_indices and dynamic_obj.state_dict[
             'y'] in dynamic_obj.state_indices, "No source for vehicle coordinates from output data"
-        vx = dynamic_obj.cal_vxvy_from_coord(
-            dynamic_obj.outputs[:, 1:], dynamic_obj.outputs[:, :-1], np.diff(dynamic_obj.T), output=True)[0, :]
+        vx = dynamic_obj.cal_vxvy_from_coord(output=True)[0, :]
     else:
         vx = dynamic_obj.outputs[dynamic_obj.state_indices.index(
             dynamic_obj.state_dict['vx']), :]
@@ -632,8 +631,7 @@ def fit_data_rover_dynobj(dynamic_obj, vy=np.array([]), back_rotate=False):
     if vy.shape[0] == 0 and back_rotate:
         assert dynamic_obj.state_dict['x'] in dynamic_obj.state_indices and dynamic_obj.state_dict[
             'y'] in dynamic_obj.state_indices, "No source for vehicle coordinates from output data"
-        vy = dynamic_obj.cal_vxvy_from_coord(
-            dynamic_obj.outputs[:, 1:], dynamic_obj.outputs[:, :-1], np.diff(dynamic_obj.T), output=True)[1, :]
+        vy = dynamic_obj.cal_vxvy_from_coord_wrapper(output=True)[1, :]
 
     # depending on availability of vy, perform NLS or LS
     if vy.shape[0] == 0:

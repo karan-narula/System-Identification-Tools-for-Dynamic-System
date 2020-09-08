@@ -299,16 +299,16 @@ def test_fit_data_rover(num_mc=100, back_rotate=False):
                       * dynamic_obj.gt_states[dynamic_obj.state_dict['vx'], :]**2)
 
         if back_rotate and dynamic_obj.state_dict['x'] in dynamic_obj.state_indices and dynamic_obj.state_dict['y'] in dynamic_obj.state_indices:
-            vxy = dynamic_obj.cal_vxvy_from_coord(
-                dynamic_obj.outputs[:, 1:], dynamic_obj.outputs[:, :-1], dt, output=True)
+            vxy = dynamic_obj.cal_vxvy_from_coord(output=True)
             vxind = dynamic_obj.state_indices.index(
                 dynamic_obj.state_dict['vx'])
             dynamic_obj.outputs[vxind, :-1] = vxy[0, :]
             vy[:-1] = vxy[1, :]
 
             # LS + NLS
-            parameters = fit_data_rover(
-                dynamic_obj.outputs, dynamic_obj.U, dt, vy=vy)
+            parameters = fit_data_rover_dynobj(dynamic_obj)
+            #parameters = fit_data_rover(
+            #    dynamic_obj.outputs, dynamic_obj.U, dt, vy=vy)
         else:
             # LS + NLS
             #parameters = fit_data_rover(

@@ -4,6 +4,38 @@ import numpy as np
 from estimators import sample_nlds
 
 
+def cal_vxvy_from_coord(state, state_prev, dt, x_ind=0, y_ind=1, theta_ind=2):
+    """
+    Calculate longitudinal and lateral velocity by rotating current position into the frame of previous position.
+
+    Args:
+        state (numpy array [4 x nt]): state of the system at different time instances
+        state_prev (numpy array [4 x nt]): corresponding previous states of state
+        dt (numpy array [nt] or float): time step/difference between state and state_prev
+        x_ind (int): row index for x coordinate of state and state_prev; defaults to 0
+        y_ind (int): row index for y coordinate of state and state_prev; defaults to 1
+        theta_ind (int): row index for theta coordinate of state and state_prev; defaults to 2
+
+    Returns:
+        vxy (numpy array [2 x nt]): linear and lateral velocities at different time instances
+
+    """
+    if len(state.shape) == 1:
+        state = state[:, np.newaxis]
+    if len(state_prev.shape) == 1:
+        state_prev = state_prev[:, np.newaxis]
+
+    prev_ang = state_prev[theta_ind, :]
+    R = np.array([[np.cos(prev_ang), np.sin(prev_ang)],
+                  [-np.sin(prev_ang), np.cos(prev_ang)]])
+    xy_dot = (state[[x_ind, y_ind], :] - state_prev[[x_ind, y_ind], :])/dt
+    vxy = np.zeros(xy_dot.shape)
+    for i in range(xy_dot.shape[1]):
+        vxy[:, i:i+1] = np.matmul(R[:, :, i], xy_dot[:, i:i+1])
+
+    return vxy
+
+
 class AbstractDyn(object):
     """
     Abstract dynamics class with useful base functions for derived classes
@@ -145,11 +177,42 @@ class AbstractDyn(object):
             u (*): current input
 
         Returns:
-            output (numpy array [len(self.state_indices) + len(state_dot_indices) x 1]): observed state and 
+            output (numpy array [len(self.state_indices) + len(state_dot_indices) x 1]): observed state and
                 state derivatives of the system
 
         """
         return np.concatenate((state[self.state_indices], self.dxdt(state, u)[0, self.state_dot_indices]))
+
+    def cal_vxvy_from_coord(self, output=True):
+        """
+        Calculate longitudinal and lateral velocity by rotating current position into the frame of previous position
+        using the available function on encapsulated data.
+
+        Args:
+            output (bool): whether to use ground truth or output data
+
+        Returns:
+            vxy (numpy array [2 x nt]): linear and lateral velocities at different time instances
+
+        """
+        # error checking
+        assert 'x' in self.state_dict, "Function requires dynamic class to contain x coordinate state"
+        assert 'y' in self.state_dict, "Function requires dynamic class to contain y coordinate state"
+        assert 'theta' in self.state_dict, "Function requires dynamic class to contain theta coordinate state"
+
+        if output:
+            # check if x,y and theta are part of the output
+            assert self.state_dict['x'] in self.state_indices, "No output for state x available"
+            assert self.state_dict['y'] in self.state_indices, "No output for state y available"
+            assert self.state_dict['theta'] in self.state_indices, "No output for state theta available"
+
+            state = self.outputs[:, 1:]
+            state_prev = self.outputs[:, :-1]
+        else:
+            state = self.gt_states[:, 1:]
+            state_prev = self.gt_states[:, :-1]
+
+        return cal_vxvy_from_coord(state, state_prev, np.diff(self.T), x_ind=self.state_dict['x'], y_ind=self.state_dict['y'], theta_ind=self.state_dict['theta'])
 
 
 class FrontSteered(AbstractDyn):
@@ -383,48 +446,9 @@ class RoverDyn(AbstractDyn):
 
         return np.array([[x_dot, y_dot, heading_dot, vx_dot]])
 
-    def cal_vxvy_from_coord(self, state, state_prev, dt, output=False, internal_ind=True, x_ind=0, y_ind=1, theta_ind=2):
-        """
-        Calculate longitudinal and lateral velocity by rotating current position into the frame of previous position.
 
-        Args:
-            state (numpy array [4 x nt]): state of the system at different time instances
-            state_prev (numpy array [4 x nt]): corresponding previous states of state
-            dt (numpy array [nt] or float): time step/difference between state and state_prev
-            output (bool): whether the state and state_prev are from the output of the system
-            internal_ind (bool): use internal indices for determining rows for x, y and theta data? defaults to True
-            x_ind (int): row index for x coordinate of state and state_prev
-            y_ind (int): row index for y coordinate of state and state_prev
-            theta_ind (int): row index for theta coordinate of state and state_prev
 
-        Returns:
-            vxy (numpy array [2 x nt]): linear and lateral velocities at different time instances
 
-        """
-        if len(state.shape) == 1:
-            state = state[:, np.newaxis]
-        if len(state_prev.shape) == 1:
-            state_prev = state_prev[:, np.newaxis]
-
-        if internal_ind:
-            if output:
-                x_ind = self.state_indices.index(self.state_dict['x'])
-                y_ind = self.state_indices.index(self.state_dict['y'])
-                theta_ind = self.state_indices.index(self.state_dict['theta'])
-            else:
-                x_ind = self.state_dict['x']
-                y_ind = self.state_dict['y']
-                theta_ind = self.state_dict['theta']
-
-        prev_ang = state_prev[theta_ind, :]
-        R = np.array([[np.cos(prev_ang), np.sin(prev_ang)],
-                      [-np.sin(prev_ang), np.cos(prev_ang)]])
-        xy_dot = (state[[x_ind, y_ind], :] - state_prev[[x_ind, y_ind], :])/dt
-        vxy = np.zeros(xy_dot.shape)
-        for i in range(xy_dot.shape[1]):
-            vxy[:, i:i+1] = np.matmul(R[:, :, i], xy_dot[:, i:i+1])
-
-        return vxy
 
 
 class RoverPartialDynEst(RoverDyn):
