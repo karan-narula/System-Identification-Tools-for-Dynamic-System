@@ -571,6 +571,7 @@ class FrontDriveFrontSteer(AbstractDyn):
         m: mass of vehicle (kg)
         iz: rotational moment of inertia (kg m^2)
         rc: resistance coeffient due to motion prevelant at high speed, given by 0.5*rho*A
+        fr: coefficient of rolling resistance (N/A)
         g: gravity
 
     Args:
