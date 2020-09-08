@@ -199,8 +199,8 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2):
         (dynamic_obj.num_states, dynamic_obj.num_states, num_sol))
     cov_states[:, :, 0] = dynamic_obj.P0.copy()
     for i in range(1, num_sol):
-        est_states[:, i:i+1], cov_states[:, :, i] = pbgf.predict_and_update(est_states[:, i-1:i], cov_states[:, :, i-1], dynamic_obj.process_model,
-                                                                            dynamic_obj.observation_model, dynamic_obj.Q, dynamic_obj.R, dynamic_obj.U[:, i-1], dynamic_obj.outputs[:, i:i+1], additional_args_pm=dynamic_obj.additional_args_pm_array[:, i-1], additional_args_om=dynamic_obj.additional_args_om_array[:, i])
+        est_states[:, i:i+1], cov_states[:, :, i] = pbgf.predict_and_or_update(est_states[:, i-1:i], cov_states[:, :, i-1], dynamic_obj.process_model,
+                                                                               dynamic_obj.observation_model, dynamic_obj.Q, dynamic_obj.R, dynamic_obj.U[:, i-1], dynamic_obj.outputs[:, i:i+1], additional_args_pm=dynamic_obj.additional_args_pm_array[:, i-1], additional_args_om=dynamic_obj.additional_args_om_array[:, i])
 
     return est_states, cov_states
 
@@ -443,7 +443,7 @@ Testing kinematic observer (Not working yet!)
     P = 5*np.random.rand(3, 3)
     P = np.matmul(P, np.transpose(P))
     x, L, W, WeightMat = temp.sigmas2(X, P)
-    #temp.predict_and_update(X, P, None, None, Q, R, np.zeros((R.shape[0], 1)))
+    #temp.predict_and_or_update(X, P, None, None, Q, R, np.zeros((R.shape[0], 1)))
     print(temp.verifySigma(x, WeightMat, X, P))
 
     # plot the theoretical vs noisy trajectory

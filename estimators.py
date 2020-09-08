@@ -91,9 +91,9 @@ class PointBasedFilter(object):
         self.method = method
         self.order = order
 
-    def predict_and_update(self, X, P, f, h, Q, R, u, y, additional_args_pm=[], additional_args_om=[], predict_flag=True):
+    def predict_and_or_update(self, X, P, f, h, Q, R, u, y, additional_args_pm=[], additional_args_om=[], predict_flag=True):
         """
-        Perform one iteration of prediction and update.
+        Perform one iteration of prediction and/or update.
         algorithm reference: Algorithm 5.1, page 104 of "Compressed Estimation in Coupled High-dimensional Processes"
 
         Args:
@@ -891,7 +891,7 @@ def test_pbgf_linear(n=10, m=5, nt=10):
         P1 -= np.matmul(np.matmul(K, H), P1)
 
         ## PBGF code
-        X2, P2 = pbgf.predict_and_update(
+        X2, P2 = pbgf.predict_and_or_update(
             X2, P2, process_model, observation_model, Q, R, [], outputs[:, i:i+1])
 
         assert np.allclose(
@@ -967,7 +967,7 @@ def test_pbgf_1d_linear(gt_const=10.0, initial_cov=10.0, q_cov=1e-2, r_cov=1.0, 
         P1 -= np.matmul(K, P1)
 
         ## PBGF code
-        X2, P2 = pbgf.predict_and_update(
+        X2, P2 = pbgf.predict_and_or_update(
             X2, P2, process_model, observation_model, Q, R, [], outputs[:, i:i+1])
 
         assert np.allclose(
