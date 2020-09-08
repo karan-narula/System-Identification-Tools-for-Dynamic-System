@@ -513,6 +513,42 @@ class RoverPartialDynEst(RoverDyn):
         return np.concatenate((state_dot, np.zeros((1, len(self.est_params)))), axis=1)
 
 
+def sample_linear(T, cruise_time, *args):
+    """
+    Create an example input vector for the dynamic model in which each phsical entity is linearly increased to the
+    corresponding maximum in args then cruise at the value for the required time before decreasing back to zero
+
+    Args:
+        T (numpy array [nt x 1]): time instances for generating the inputs
+        cruise_time (float): number of seconds to maintain maximum of each physical entity before linearly
+            decreasing back to zero
+        args (list): list of the maximum of each physical entity
+
+    Returns:
+        U (numpy array [len(args) x nt]): input consisting of each physical entity at different time instances
+    """
+    # create input vector
+    U = np.zeros((len(args), len(T)))
+    t_after_accel = (T[-1] - cruise_time)/2.0
+    t_before_deaccel = t_after_accel + cruise_time
+
+    # fill in the input for each physical entity
+    for index, maximum in enumerate(args):
+        slope = maximum/t_after_accel
+
+        # linearly increase to maximum phase
+        U[index, T <= t_after_accel] = slope*T[T <= t_after_accel]
+
+        # cruise phase
+        U[index, (T > t_after_accel) & (T < t_before_deaccel)] = maximum
+
+        # deacceleration phase
+        U[index, T >= t_before_deaccel] = -slope * \
+            (T[T >= t_before_deaccel] - t_before_deaccel) + maximum
+
+    return U
+
+
 def sample_input_rover(T, max_steering=30*math.pi/180.0, max_speed=5.0, cruise_time=2.0):
     """
     Create an example input vector for the rover dynamic model in which:
@@ -530,29 +566,7 @@ def sample_input_rover(T, max_steering=30*math.pi/180.0, max_speed=5.0, cruise_t
         U (numpy array [2 x nt]): input consisting of steering angle and velocity at different time instances
 
     """
-    # create input vector
-    U = np.zeros((2, len(T)))
-    t_after_accel = (T[-1] - cruise_time)/2.0
-    t_before_deaccel = t_after_accel + cruise_time
-
-    slope_speed = max_speed/t_after_accel
-    slope_steer = max_steering/t_after_accel
-
-    # acceleration phase
-    U[0, T <= t_after_accel] = slope_steer*T[T <= t_after_accel]
-    U[1, T <= t_after_accel] = slope_speed*T[T <= t_after_accel]
-
-    # cruise phase
-    U[0, (T > t_after_accel) & (T < t_before_deaccel)] = max_steering
-    U[1, (T > t_after_accel) & (T < t_before_deaccel)] = max_speed
-
-    # deacceleration phase
-    U[0, T >= t_before_deaccel] = -slope_steer * \
-        (T[T >= t_before_deaccel] - t_before_deaccel) + max_steering
-    U[1, T >= t_before_deaccel] = -slope_speed * \
-        (T[T >= t_before_deaccel] - t_before_deaccel) + max_speed
-
-    return U
+    return sample_linear(T, cruise_time, *[max_steering, max_speed])
 
 
 def sample_input_front_steered(T, max_w=45*math.pi/180.0, max_steering=20*math.pi/180.0, cruise_time=2.0):
@@ -573,33 +587,7 @@ def sample_input_front_steered(T, max_w=45*math.pi/180.0, max_steering=20*math.p
             different time instances
 
     """
-    # create input vector
-    U = np.zeros((3, len(T)))
-    t_after_accel = (T[-1] - cruise_time)/2.0
-    t_before_deaccel = t_after_accel + cruise_time
-
-    slope_w = max_w/t_after_accel
-    slope_steer = max_steering/t_after_accel
-
-    # acceleration phase
-    U[0, T <= t_after_accel] = slope_steer*T[T <= t_after_accel]
-    U[1, T <= t_after_accel] = slope_w*T[T <= t_after_accel]
-    U[2, T <= t_after_accel] = slope_w*T[T <= t_after_accel]
-
-    # cruise phase
-    U[0, (T > t_after_accel) & (T < t_before_deaccel)] = max_steering
-    U[1, (T > t_after_accel) & (T < t_before_deaccel)] = max_w
-    U[2, (T > t_after_accel) & (T < t_before_deaccel)] = max_w
-
-    # deacceleration phase
-    U[0, T >= t_before_deaccel] = -slope_steer * \
-        (T[T >= t_before_deaccel] - t_before_deaccel) + max_steering
-    U[1, T >= t_before_deaccel] = -slope_w * \
-        (T[T >= t_before_deaccel] - t_before_deaccel) + max_w
-    U[2, T >= t_before_deaccel] = -slope_w * \
-        (T[T >= t_before_deaccel] - t_before_deaccel) + max_w
-
-    return U
+    return sample_linear(T, cruise_time, *[max_steering, max_w, max_w])
 
 
 def test_rover_dyn():
