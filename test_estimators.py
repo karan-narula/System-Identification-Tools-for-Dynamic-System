@@ -5,7 +5,7 @@ import math
 import numpy as np
 import matplotlib.pyplot as plt
 
-from car_dynamics import sample_input_front_steered, FrontSteered, sample_input_rover, RoverPartialDynEst
+from car_dynamics import sample_linear, FrontSteered, RoverPartialDynEst, FrontDriveFrontSteerEst
 from estimators import kinematic_state_observer, PointBasedFilter, fit_data_rover, fit_data_rover_dynobj
 
 
@@ -71,104 +71,90 @@ def plot_stuff(dynamic_obj, est_states, num_row=1):
     plt.show()
 
 
-def simulate_rover_data(param_dict, U, T, seed=0, std_x=0.0, std_y=0.0, std_theta=0.0, std_vx=0.0, std_x_out=1e-1, std_y_out=1e-1, std_theta_out=1.0, std_vx_out=0.1, std_x_dot_out=1e-1, std_y_dot_out=1e-1, std_theta_dot_out=1.0, std_vx_dot_out=1e-1, est_params=['c8', 'c9'], output_keys=['x', 'y', 'theta', 'vx'], output_dot_keys=[], init_state_cov=0.0, init_param_cov=0.0):
+def simulate_data(dyn_class, param_dict, U, T, **kwargs):
     """
-    Simulate ground truth, initial condition and output data for rover dynamics.
+    Simulate ground truth, initial condition and output data for a specified dynamics class.
 
     Args:
-        param_dict (dict): dictionary of parameters needed for defining the dynamics; should contain c1-c9 keys
+        dyn_class (class of type inherited from AbstractDyn): type to create dynamic object
+        param_dict (dict): dictionary of parameters needed for defining the dynamics
         U (numpy array [2 x nt]): input consisting of steering angle and velocity at different time instances
         T (numpy array [nt]): time instances corresponding to the input U
+        kwargs: dictionary of variable length for additional parameters
+
+    kwargs:
         seed (int): seed for the random generator for repeatability of the tests; defaults to 0
-        std_x (float): standard deviation in metres for additive noise for evolution model of state x;
-            defaults to 1e-1 metres
-        std_y (float): standard deviation in metres for additive noise for evolution model of state y;
-            defaults to 1e-1 metres
-        std_theta (float): standard deviation in degrees for additive noise for evolution model of state theta;
-            defaults to 1.0 degrees
-        std_vx (float): standard deviation in m/s for additive noise for evolution model of state vx;
-            defaults to 0.1 m/s
-        std_x_out (float): standard deviation in metres for additive noise for observation of state x;
-            defaults to 1e-1 metres
-        std_y_out (float): standard deviation in metres for additive noise for observation of state y;
-            defaults to 1e-1 metres
-        std_theta_out (float): standard deviation in degrees for additive noise for observation of state theta;
-            defaults to 1.0 degrees
-        std_vx_out (float): standard deviation in m/s for additive noise for observation of rate of change of state vx;
-            defaults to 0.1 m/s
-        std_x_dot_out (float): standard deviation in m/s for additive noise for observation of rate of change of state x;
-            defaults to 1e-1 m/s
-        std_y_dot_out (float): standard deviation in m/s for additive noise for observation of rate of change of state y;
-            defaults to 1e-1 m/s
-        std_theta_dot_out (float): standard deviation in deg/s for additive noise for observation of rate of
-            change of state theta; defaults to 1.0 deg/s
-        std_vx_dot_out (float): standard deviation in m/s^2 for additive noise for observation of rate of change of
-            state vx; defaults to 0.1 m/s^2
-        est_params (list): list of parameter strings to be estimated; must be from c1-c9; defaults to ['c8', 'c9']
-        output_keys (list): list of state strings that are observed; must be from list ['x', 'y', 'theta', 'vx'];
-            defaults to ['x', 'y', 'theta', 'vx']
-        output_dot_keys (list): list of state derivative strings that are observed; must be from list ['x', 'y', 'theta', 'vx'];
+        std_* (float): standard deviation for additive noise for evolution model of state *; * must be a key in the
+            state_dict of dyn_class; defaults to 0.0 when not given for a state in state_dict of dyn_class
+        std_*_out (float): standard deviation for additive noise for observation of state *; * must be a key in the
+            state_dict of dyn_class; defaults to 1e-1 when not given for a state in output_keys
+        std_*_dot_out (float): standard deviation for additive noise for observation of rate of change of state *;
+            * must be a key in the state_dict of dyn_class; defaults to 1e-1 when not given for a state in output_dot_keys
+        est_params (list): list of parameter strings to be estimated; defaults to empty
+        output_keys (list): list of state strings that are observed; must be from state_dict of dyn_class; defaults to
+            keys of state_dict of dyn_class
+        output_dot_keys (list): list of state derivative strings that are observed; must be from state_dict of dyn_class;
             defaults to empty
-        init_state_cov (list or float): if list must be of size 4; covariance of initial condition for the dynamic states;
-            defaults to 0.0
-        init_param_cov (list or float): if list must be of size len(est_params); covariance of initial condition for the parameters;
-            defaults to 0.0
+        init_state_cov (list or float): if list must be of the same length as state_dict of dyn_class; covariance of initial
+            condition for the dynamic states; defaults to 0.0
+        init_param_cov (list or float): if list must be of size as len(est_params); covariance of initial condition for the
+            parameters; defaults to 0.0
 
     Returns:
-        dynamic_obj (RoverPartialDynEst obj): dynamic object
+        dynamic_obj (dyn_class obj): dynamic object
 
     """
+    # retrieve state dictionary from dynamic class
+    state_dict = dyn_class.state_dict
+
     # check if expected inputs are iterable, if not convert to as such
+    est_params = kwargs.get('est_params', [])
     if not isinstance(est_params, Iterable):
         est_params = [est_params]
 
+    init_state_cov = kwargs.get('init_state_cov', 0.0)
     if not isinstance(init_state_cov, Iterable):
-        init_state_cov = [init_state_cov]*4
+        init_state_cov = [init_state_cov]*len(state_dict)
 
+    init_param_cov = kwargs.get('init_param_cov', 0.0)
     if not isinstance(init_param_cov, Iterable):
         init_param_cov = [init_param_cov]*len(est_params)
 
     assert len(est_params) == len(init_param_cov), "Expected parameters to be estimated to be of the same length as initial covariance but instead got {} and {} respectively".format(
         len(est_params), len(init_param_cov))
-    assert len(init_state_cov) == 4, "Expected initial covariance of the states to be of size 4 but instead got {}".format(
-        len(init_state_cov))
+    assert len(init_state_cov) == len(state_dict), "Expected initial covariance of the states to be of size {} but instead got {}".format(
+        len(state_dict), len(init_state_cov))
 
     # control random seed generator
+    seed = kwargs.get('seed', 0)
     np.random.seed(seed)
 
     # covariance matrix of additive GWN in stochastic model
-    std_theta *= math.pi/180.0
-    temp = [std_x**2, std_y**2, std_theta ** 2, std_vx**2]
+    temp = [0.0]*len(state_dict)
+    for key in state_dict:
+        temp[state_dict[key]] = kwargs.get('std_' + key, 0.0)**2
     temp.extend([0.0]*len(est_params))
     Q = np.diag(temp)
 
     # covariance matrix of additive GWN in observation model
-    std_theta_out *= math.pi/180.0
-    std_theta_dot_out *= math.pi/180.0
+    output_keys = kwargs.get('output_keys', state_dict.keys())
+    output_dot_keys = kwargs.get('output_dot_keys', [])
+
     vars_out = []
     for output_key in output_keys:
-        if output_key == 'x':
-            vars_out.append(std_x_out**2)
-        elif output_key == 'y':
-            vars_out.append(std_y_out**2)
-        elif output_key == 'theta':
-            vars_out.append(std_theta_out**2)
-        elif output_key == 'vx':
-            vars_out.append(std_vx_out**2)
+        if output_key in state_dict:
+            vars_out.append(kwargs.get(
+                'std_' + output_key + '_out', 0.10)**2)
+
     for output_dot_key in output_dot_keys:
-        if output_dot_key == 'x':
-            vars_out.append(std_x_dot_out**2)
-        elif output_dot_key == 'y':
-            vars_out.append(std_y_dot_out**2)
-        elif output_dot_key == 'theta':
-            vars_out.append(std_theta_dot_out**2)
-        elif output_dot_key == 'vx':
-            vars_out.append(std_vx_dot_out**2)
+        if output_dot_key in state_dict:
+            vars_out.append(kwargs.get(
+                'std_' + output_dot_key + '_dot_out', 0.10)**2)
 
     R = np.diag(vars_out)
 
     # ground truth initial condition
-    z0 = [0.0]*4
+    z0 = [0.0]*len(state_dict)
     for est_param in est_params:
         z0.append(param_dict[est_param])
     z0 = np.array([z0]).T
@@ -179,55 +165,9 @@ def simulate_rover_data(param_dict, U, T, seed=0, std_x=0.0, std_y=0.0, std_thet
     P0 = np.diag(temp)
 
     # create the ground truth and noisy states
-    dynamic_obj = RoverPartialDynEst(
+    dynamic_obj = dyn_class(
         param_dict, est_params, state_keys=output_keys, state_dot_keys=output_dot_keys)
     dynamic_obj.sample_nlds(z0, U, T, Q=Q, P0=P0, R=R, store_variables=True)
-
-    return dynamic_obj
-
-
-def simulate_rover_data_wrapper(est_params, output_keys, output_dot_keys, seed=0):
-    """
-    Just calls simulate_rover_data with parameters highlighted here.
-    To see the modification to tests, parameters can just be modified in this function.
-
-    Args:
-        est_params (list): list of parameter strings to be estimated; must be from c1-c9; defaults to ['c8', 'c9']
-        output_keys (list): list of state strings that are observed; must be from list ['x', 'y', 'theta', 'vx']
-        output_dot_keys (list): list of state derivative strings that are observed; must be from list ['x', 'y', 'theta', 'vx']
-        seed (int): seed for the random generator for repeatability of the tests; defaults to 0
-
-    Returns:
-        dynamic_obj (RoverPartialDynEst obj): dynamic object
-
-    """
-    # ground truth parameters
-    param_dict = ODict([('c1', 1.5), ('c2', 0.2), ('c3', 2.35), ('c4', 0.1),
-                        ('c5', -0.0811), ('c6', -1.4736), ('c7', 0.1257), ('c8', 0.0765), ('c9', -0.0140)])
-
-    # stds for stochastic model
-    std_x = std_y = std_theta = std_vx = 0.0
-
-    # stds for output
-    std_x_out = std_y_out = std_x_dot_out = std_y_dot_out = 0.10
-    std_theta_out = std_theta_dot_out = 1.0
-    std_vx_out = std_vx_dot_out = 0.10
-
-    # timing variables
-    dt = 0.05
-    tf = 20.0
-    T = np.arange(0.0, tf, dt)
-
-    # create input vector for rover model
-    U = sample_input_rover(T)
-
-    # initial covariance
-    init_state_cov = 0.0
-    init_param_cov = 1.0
-
-    # get dynamic object
-    dynamic_obj = simulate_rover_data(param_dict, U, T, seed=seed, std_x=std_x, std_y=std_y, std_theta=std_theta, std_vx=std_vx, std_x_out=std_x_out, std_y_out=std_y_out, std_theta_out=std_theta_out, std_vx_out=std_vx_out, std_x_dot_out=std_x_dot_out,
-                                      std_y_dot_out=std_y_dot_out, std_theta_dot_out=std_theta_dot_out, std_vx_dot_out=std_vx_dot_out, est_params=est_params, output_keys=output_keys, output_dot_keys=output_dot_keys, init_state_cov=init_state_cov, init_param_cov=init_param_cov)
 
     return dynamic_obj
 
@@ -265,25 +205,35 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2):
     return est_states, cov_states
 
 
-def test_fit_data_rover(num_mc=100, back_rotate=False):
+def test_fit_data_rover(param_dict, num_mc=100, back_rotate=False, **kwargs):
     """
     Test the function fit_data_rover for a specific configuration for a number of times. Generates various plots to
     see MSE at various times and how well trajectory fits with the estimated parameters.
 
     Args:
+        param_dict (dict): dictionary of parameters needed for defining the dynamics
         num_mc (int): number of monte carlo experiment to perform
         back_rotate (bool): produce linear and lateral velocities from rotating state coordinates?
+        kwargs: dictionary of variable length for additional parameters for the simulate_data function;
+            see simulate_data for more details
 
     """
-    # get data
-    est_params = []
-    output_keys = ['x', 'y', 'theta', 'vx']
-    output_dot_keys = ['theta']
+    # timing variables
+    dt = 0.05
+    tf = 20.0
+    T = np.arange(0.0, tf, dt)
+
+    # create input vector for rover model
+    cruise_time = 2.0
+    U = sample_linear(T, cruise_time, *[math.pi/6.0, 5.0])
+
     square_errors = np.array([])
     interested_mc = int(math.floor(num_mc/2.0))
     for i in range(num_mc):
-        dynamic_obj = simulate_rover_data_wrapper(
-            est_params, output_keys, output_dot_keys, seed=i)
+        # get data
+        kwargs['seed'] = i
+        dynamic_obj = simulate_data(
+            RoverPartialDynEst, param_dict, U, T, **kwargs)
 
         if square_errors.shape[0] == 0:
             square_errors = np.zeros((4, len(dynamic_obj.T), num_mc))
@@ -354,16 +304,30 @@ def test_fit_data_rover(num_mc=100, back_rotate=False):
     plt.show()
 
 
-def test_pbgf():
+def test_pbgf(dyn_class, param_dict, max_inputs_list, **kwargs):
     """
     Test the PBGF in estimating the parameters and states.
+
+    Args:
+        dyn_class (class of type inherited from AbstractDyn): type to create dynamic object
+        param_dict (dict): dictionary of parameters needed for defining the dynamics
+        max_inputs_list (list): list of maximum inputs for generating inputs for the dynamic model
+        kwargs: dictionary of variable length for additional parameters for the simulate_data function;
+            see simulate_data for more details
+
     """
+    # timing variables
+    dt = 0.05
+    tf = 20.0
+    T = np.arange(0.0, tf, dt)
+
+    # create input vector for rover model
+    cruise_time = 5.0
+    U = sample_linear(T, cruise_time, *max_inputs_list)
+
     # get data
-    est_params = ['c8', 'c9']
-    output_keys = ['x', 'y']
-    output_dot_keys = ['theta']
-    dynamic_obj = simulate_rover_data_wrapper(
-        est_params, output_keys, output_dot_keys)
+    dynamic_obj = simulate_data(
+        dyn_class, param_dict, U, T, **kwargs)
 
     # get filtered estimates
     est_states = create_filtered_estimates(dynamic_obj, order=2)[0]
@@ -373,9 +337,32 @@ def test_pbgf():
 
 
 if __name__ == '__main__':
-    test_fit_data_rover(back_rotate=False)
-    test_pbgf()
+    # parameters under test for the rover model
+    param_dict = ODict([('c1', 1.5), ('c2', 0.2), ('c3', 2.35), ('c4', 0.1),
+                        ('c5', -0.0811), ('c6', -1.4736), ('c7', 0.1257), ('c8', 0.0765), ('c9', -0.0140)])
+    configuration = {'output_keys': ['x', 'y', 'theta', 'vx'],
+                     'output_dot_keys': ['theta'],
+                     'init_param_cov': 1.0,
+                     'std_x_out': 0.10,
+                     'std_y_out': 0.10,
+                     'std_theta_out': math.pi/180.0,
+                     'std_theta_dot_out': math.pi/180.0}
+    max_steering = 30.0*math.pi/180.0
+    max_speed = 5.0
+    max_inputs_list = [max_steering, max_speed]
 
+    # test LS & NLS of rover model
+    test_fit_data_rover(param_dict, back_rotate=False, **configuration)
+
+    ## test pbgf for rover model
+    configuration = {'seed': 0,
+                     'output_keys': ['x', 'y'],
+                     'est_params': ['c8', 'c9'],
+                     'init_param_cov': 1.0,
+                     'std_x_out': 0.10,
+                     'std_y_out': 0.10}
+
+    test_pbgf(RoverPartialDynEst, param_dict, max_inputs_list, **configuration)
 
 """
 Testing kinematic observer (Not working yet!)
