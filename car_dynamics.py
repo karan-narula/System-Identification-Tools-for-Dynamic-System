@@ -45,19 +45,15 @@ class AbstractDyn(object):
         expected_keys (list): list of parameters string that are expected to be present in the param_dict; defaults to empty
         state_keys (list): list of states string that are observed by sensor; defaults to empty
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
-        state_dict (dict): dictionary mapping states string to index in array
 
     """
 
-    def __init__(self, param_dict, expected_keys=[], state_keys=[], state_dot_keys=[], state_dict={}):
+    def __init__(self, param_dict, expected_keys=[], state_keys=[], state_dot_keys=[]):
         # store the parameter dictionary for the vehicle dynamics
         self.param_dict = param_dict
 
         # store expected keys of param dictionary
         self.expected_keys = expected_keys
-
-        # store the dictionary linking state to index
-        self.state_dict = state_dict
 
         # check if param dictionary is valid
         assert self.check_param_dict(), "Parameter dictionary does not contain all requried keys"
@@ -235,17 +231,16 @@ class FrontSteered(AbstractDyn):
         acc_output (bool): include inertial accelerations as outputs?
 
     """
+    # state dictionary for this model
+    state_dict = {'x': 0, 'y': 1, 'theta': 2, 'vx': 3, 'vy': 4, 'omega': 5}
 
     def __init__(self, param_dict, state_keys, state_dot_keys=[], acc_output=False):
-        # state dictionary for this model
-        state_dict = {'x': 0, 'y': 1, 'theta': 2, 'vx': 3, 'vy': 4, 'omega': 5}
-
         # expected parameter keys
         expected_keys = ["mass", "lr", "lf",
                          "e_wr", "cxf", "cxr", "cyf", "cyr", "iz"]
 
         super(FrontSteered, self).__init__(
-            param_dict, expected_keys=expected_keys, state_keys=state_keys, state_dot_keys=state_dot_keys, state_dict=state_dict)
+            param_dict, expected_keys=expected_keys, state_keys=state_keys, state_dot_keys=state_dot_keys)
 
         # dimensionality of input
         self.num_in = 3
@@ -398,17 +393,16 @@ class RoverDyn(AbstractDyn):
             when None is specified, the parameters are assumed to be c1-c9
 
     """
+    # state dictionary for this model
+    state_dict = {'x': 0, 'y': 1, 'theta': 2, 'vx': 3}
 
     def __init__(self, param_dict, state_keys, state_dot_keys=[], expected_keys=None):
-        # state dictionary for this model
-        state_dict = {'x': 0, 'y': 1, 'theta': 2, 'vx': 3}
-
         # expected parameter keys
         if expected_keys is None:
             expected_keys = ["c1", "c2", "c3",
                              "c4", "c5", "c6", "c7", "c8", "c9"]
         super(RoverDyn, self).__init__(param_dict, expected_keys=expected_keys,
-                                       state_keys=state_keys, state_dot_keys=state_dot_keys, state_dict=state_dict)
+                                       state_keys=state_keys, state_dot_keys=state_dot_keys)
 
         # specify expected dimensionality of input
         self.num_in = 2
