@@ -538,6 +538,159 @@ class RoverPartialDynEst(RoverDyn):
         return partial_dxdt(self, RoverPartialDynEst, state, u)
 
 
+class FrontDriveFrontSteer(AbstractDyn):
+    """
+    Class derived from AbstractDyn class
+    model from:
+    inputs = [linear acceleration, steering angle]
+    states = [x, y, theta, vx, vy, w]
+
+    The assumptions of this model are:
+    (i) The radius of the turn, R, must be large compared to the vehicle wheelbase, L = lf + lr, and the vehicle track, t.
+    (ii) The left and right steering angles of the front wheels must be approximately the same.
+    (iii) The sideslip angles of the front wheels are approximately the same, as are the sideslip angles of the rear wheels.
+    (iv) The sideslip angle at the CG is beta = tan-1(v/u) which is approximated by v/u with small angle assumption
+    (v) The radius, R, sideslip angle, beta, and yaw rate, w, are fixed in a steady turn so that the instantaneous speed
+        tangent to the path at the CG is u = Rw.
+    (vi) Tractive force is limited by the coefficient of friction between the tire and the road: f_x = mue*f_z. The calculation
+        of f_z must consider fore-aft weight shift (acceleration and braking) as well as transverse weight shift due to cornering.
+        To simplify, we may assume small (i.e. no) lateral and yaw motion. Note that tractive force is also limited by power
+        limits of the vehicle.
+    (vii) The gradient of the road theta = 0. The vehicle drawbar force in the x-axis Rhx = 0. Wind velocity uw = 0. Additionally,
+        since the vehicle is front-wheel-drive, f_xr = 0.
+    (viii) The front and rear tire forces are a linear function of tire slip.
+    (ix) Assumptions regarding use of a bicycle model - "steady turning behavior, at a constant forward speed, due to a small
+        and steady steer displacement at the front wheels".
+
+    The model parameters are:
+        fx: linear constant for converting input acceleration into tractive force of the front wheels (N/A)
+        cf: front cornering stiffness coeffient
+        cr: back cornering stiffness coeffient
+        lf: distance from CG to front axle (m)
+        lr: distance from CG to rear axle (m)
+        m: mass of vehicle (kg)
+        iz: rotational moment of inertia (kg m^2)
+        rc: resistance coeffient due to motion prevelant at high speed, given by 0.5*rho*A
+        g: gravity
+
+    Args:
+        param_dict (dict): dictionary of parameters needed for defining the dynamics
+        state_keys (list): list of states string that are observed by sensor
+        state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
+        expected_keys (list): list of parameters string that are expected to be present in the param_dict; defaults to None
+            when None is specified, the parameters are assumed to be fx, cf, cr, lf, lr, m, iz, rc, fr and g.
+
+    """
+    # state dictionary for this model
+    state_dict = {'x': 0, 'y': 1, 'theta': 2, 'vx': 3, 'vy': 4, 'w': 5}
+
+    def __init__(self, param_dict, state_keys, state_dot_keys=[], expected_keys=None):
+        # expected parameter keys
+        if expected_keys is None:
+            expected_keys = ["fx", "cf", "cr",
+                             "lf", "lr", "m", "iz", "rc", "fr", "g"]
+        super(FrontDriveFrontSteer, self).__init__(param_dict, expected_keys=expected_keys,
+                                                   state_keys=state_keys, state_dot_keys=state_dot_keys)
+
+        # specify expected dimensionality of input
+        self.num_in = 2
+
+    def dxdt(self, state, u):
+        """
+        Obtain derivative of the state based on current state and input
+
+        Args:
+            state (numpy array [6 x 1]): current state of the system consisting of x, y, theta vx, vy and w
+            u (numpy array [2 x 1]): current input consisting of linear acceleration and steering angle
+
+        Returns:
+            state_dot (numpy array [6 x 1]): derivative of the states
+
+        """
+        # get the parameters
+        m = self.param_dict['m']
+        lr = self.param_dict['lr']
+        lf = self.param_dict['lf']
+        cr = self.param_dict['cr']
+        cf = self.param_dict['cf']
+        fx = self.param_dict['fx']
+        rc = self.param_dict['rc']
+        iz = self.param_dict['iz']
+        fr = self.param_dict['fr']
+        g = self.param_dict['g']
+
+        # get the inputs
+        a_req = u[0]
+        steering_angle = u[1]
+
+        # get the states
+        theta = state[self.state_dict['theta']]
+        vx = state[self.state_dict['vx']]
+        vy = state[self.state_dict['vy']]
+        w = state[self.state_dict['w']]
+
+        # avoid division by zero
+        if vy == 0.0 and vx == 0.0:
+            vy_by_vx = 0.0
+        else:
+            vy_by_vx = vy/vx
+        if w == 0.0 and vx == 0.0:
+            w_by_vx = 0.0
+        else:
+            w_by_vx = w/vx
+
+        # calculate the derivatives
+        x_dot = vx*math.cos(theta) - vy*math.sin(theta)
+        y_dot = vy*math.cos(theta) + vx*math.sin(theta)
+        theta_dot = w
+        vx_dot = (fx*a_req + cf*(-steering_angle**2 + steering_angle *
+                                 vy_by_vx) + lf*cf*steering_angle*w_by_vx - 0.5*rc*vx**2 - fr*m*g + m*vy*w)/m
+        vy_dot = (-(cf + cr)*vy_by_vx + (lr*cr - lf*cf) *
+                  w_by_vx + cf*steering_angle + m*vx*w)/m
+        w_dot = ((lr*cr - lf*cf)*vy_by_vx - (cf*lf**2 + cr*lr**2)
+                 * w_by_vx + lf*cf*steering_angle)/iz
+
+        return np.array([[x_dot, y_dot, theta_dot, vx_dot, vy_dot, w_dot]])
+
+
+class FrontDriveFrontSteerEst(FrontDriveFrontSteer):
+    """
+    Class derived from FrontDriveFrontSteer class
+    model from: same as FrontDriveFrontSteer but some parameters are the states themselves to be estimated online
+    inputs = [linear acceleration, steering angle]
+    states = [x, y, theta, vx, vy, w, ...]
+
+    Args:
+        param_dict (dict): dictionary of parameters needed for defining the dynamics
+        est_params (list): list of parameter strings to be estimated with the states
+        state_keys (list): list of states string that are observed by sensor
+        state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
+
+    """
+
+    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[]):
+        expected_keys = ["fx", "cf", "cr", "lf", "lr", "m", "iz", "rc", "fr"]
+
+        partial_init(self, FrontDriveFrontSteerEst, expected_keys,
+                     est_params, param_dict, state_keys, state_dot_keys)
+
+    def dxdt(self, state, u):
+        """
+        Obtain derivative of the state based on current state and input similar to RoverDyn. Derivatives of
+        estimated parameters are zero, i.e. assuming they are constant and not drifting over time.
+
+        Args:
+            state (numpy array [6+len(self.est_params) x 1]): current state of the system consisting of x, y, theta, vx,
+                vy, w and estimated parameters
+            u (numpy array [2 x 1]): current input consisting of linear acceleration and steering angle
+
+        Returns:
+            state_dot (numpy array [6+len(self.est_params) x 1]): derivative of the states
+
+        """
+        return partial_dxdt(self, FrontDriveFrontSteerEst, state, u)
+
+
 def sample_linear(T, cruise_time, *args):
     """
     Create an example input vector for the dynamic model in which each phsical entity is linearly increased to the

@@ -364,6 +364,23 @@ if __name__ == '__main__':
 
     test_pbgf(RoverPartialDynEst, param_dict, max_inputs_list, **configuration)
 
+    # test pbgf for FrontDriveFrontSteer
+    param_dict = ODict([('fx', 15), ('cf', 0.75), ('cr', 0.75), ('lf', 0.8),
+                        ('lr', 1.75), ('m', 1000.0), ('iz', 100.0), ('rc', 0.0), ('fr', 0.0), ('g', 9.8)])
+    configuration = {'seed': 0,
+                     'output_keys': ['x', 'y'],
+                     'est_params': ['m', 'iz'],
+                     'init_param_cov': 100,
+                     'std_x_out': 0.10,
+                     'std_y_out': 0.10,
+                     'std_theta_out': math.pi/180.0,
+                     'std_theta_dot_out': math.pi/180.0}
+    max_a = 20.0
+    max_steering = 30.0*math.pi/180.0
+    max_inputs_list = [max_a, max_steering]
+    test_pbgf(FrontDriveFrontSteerEst, param_dict,
+              max_inputs_list, **configuration)
+
 """
 Testing kinematic observer (Not working yet!)
 
