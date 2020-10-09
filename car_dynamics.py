@@ -1,5 +1,6 @@
 import math
 import numpy as np
+import abc
 
 from estimators import sample_nlds
 
@@ -47,6 +48,7 @@ class AbstractDyn(object):
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
 
     """
+    __metaclass__ = abc.ABCMeta
 
     def __init__(self, param_dict, expected_keys=[], state_keys=[], state_dot_keys=[]):
         # store the parameter dictionary for the vehicle dynamics
@@ -148,6 +150,13 @@ class AbstractDyn(object):
             self.additional_args_om_array = additional_args_om_array
 
         return gt_states, gt_states_dot, initial_cond, outputs
+
+    @abc.abstractmethod
+    def dxdt(self, state, u):
+        """
+        Differential model for the dynamic model.
+        """
+        return
 
     def forward_prop(self, state, state_dot, dt):
         """
