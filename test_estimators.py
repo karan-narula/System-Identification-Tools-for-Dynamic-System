@@ -153,10 +153,26 @@ def simulate_data(dyn_class, param_dict, U, T, **kwargs):
 
     R = np.diag(vars_out)
 
+    # adjust param dict when full array is not specified
+    for key in param_dict:
+        if isinstance(param_dict[key], Iterable):
+            if len(param_dict[key]) != len(T):
+                temp = param_dict[key].copy()
+                param_dict[key] = [temp[-1]]*len(T)
+
+                num_each = math.floor(len(T)/len(temp))
+                ind = 0
+                for item in temp:
+                    param_dict[key][ind:ind+num_each] = [item]*num_each
+                    ind += num_each
+
     # ground truth initial condition
     z0 = [0.0]*len(state_dict)
     for est_param in est_params:
-        z0.append(param_dict[est_param])
+        if isinstance(param_dict[est_param], Iterable):
+            z0.append(param_dict[est_param][0])
+        else:
+            z0.append(param_dict[est_param])
     z0 = np.array([z0]).T
 
     # initial belief, uncertainty of initial condition
@@ -199,8 +215,8 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2):
         (dynamic_obj.num_states, dynamic_obj.num_states, num_sol))
     cov_states[:, :, 0] = dynamic_obj.P0.copy()
     for i in range(1, num_sol):
-        est_states[:, i:i+1], cov_states[:, :, i] = pbgf.predict_and_or_update(est_states[:, i-1:i], cov_states[:, :, i-1], dynamic_obj.process_model,
-                                                                               dynamic_obj.observation_model, dynamic_obj.Q, dynamic_obj.R, dynamic_obj.U[:, i-1], dynamic_obj.outputs[:, i:i+1], additional_args_pm=dynamic_obj.additional_args_pm_array[:, i-1], additional_args_om=dynamic_obj.additional_args_om_array[:, i])
+        est_states[:, i:i+1], cov_states[:, :, i] = pbgf.predict_and_or_update(est_states[:, i-1:i], cov_states[:, :, i-1], dynamic_obj.process_model, dynamic_obj.observation_model, dynamic_obj.Q, dynamic_obj.R,
+                                                                               dynamic_obj.U[:, i-1], dynamic_obj.outputs[:, i:i+1], additional_args_pm=[sub[i-1] for sub in dynamic_obj.additional_args_pm_list], additional_args_om=[sub[i] for sub in dynamic_obj.additional_args_om_list])
 
     return est_states, cov_states
 

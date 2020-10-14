@@ -764,9 +764,9 @@ def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, additional_ar
         gt_states (numpy array [n x nt]): ground truth states at different time instances
         initial_cond (numpy array [n x 1]): initial condition from Gaussian distribution with mean z0 and covariance P0
         outputs (numpy array [num_out x nt]): simulated outputs of the system
-        additional_args_pm_array (numpy array [len(additional_args_pm) x nt]): additional arguments to be passed to 
+        additional_args_pm_list (2d list [len(additional_args_pm) x nt]): additional arguments to be passed to 
             function f at each time instant
-        additional_args_om_array (numpy array [len(additional_args_om) x nt]): additional arguments to be passed to
+        additional_args_om_list (2d list [len(additional_args_om) x nt]): additional arguments to be passed to
             function h at each time instant
 
     """
@@ -790,22 +790,22 @@ def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, additional_ar
         num_out, num_out), "Inconsistent size of observation noise matrix"
 
     # check the additional arguments
-    additional_args_pm_array = np.zeros((len(additional_args_pm), nt))
-    additional_args_om_array = np.zeros((len(additional_args_om), nt))
+    additional_args_pm_list = np.zeros((len(additional_args_pm), nt)).tolist()
+    additional_args_om_list = np.zeros((len(additional_args_om), nt)).tolist()
     for i, argument in enumerate(additional_args_pm):
         if not isinstance(argument, Iterable):
-            additional_args_pm_array[i, :] = np.matlib.repmat(argument, 1, nt)
+            additional_args_pm_list[i] = [argument] * nt
         else:
             assert len(
                 argument) == nt, "If iterable argument for pm is provided, it should have the length of nt"
-            additional_args_pm_array[i, :] = argument
-    for i, argument in enumerate(additional_args_om_array):
+            additional_args_pm_list[i] = argument
+    for i, argument in enumerate(additional_args_om):
         if not isinstance(argument, Iterable):
-            additional_args_om_array[i, :] = np.matlib.repmat(argument, 1, nt)
+            additional_args_om_list[i] = [argument] * nt
         else:
             assert len(
                 argument) == nt, "If iterable argument for om is provided, it should have the length of nt"
-            additional_args_om_array[i, :] = argument
+            additional_args_om_list[i] = argument
 
     # generate noise samples for stochastic model and observations
     state_noise_samples = sample_gaussian(np.zeros(z0.shape), Q, nt)
@@ -818,16 +818,16 @@ def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, additional_ar
     initial_cond = sample_gaussian(z0, P0, 1)
     outputs = np.zeros((num_out, nt))
     outputs[:, 0] = h(gt_states[:, 0], U[:, 0],
-                      obs_noise_samples[:, 0], *additional_args_om_array[:, 0])
+                      obs_noise_samples[:, 0], *[sub[0] for sub in additional_args_om_list])
 
     for i in range(1, nt):
         gt_states[:, i] = f(gt_states[:, i-1], U[:, i-1],
-                            state_noise_samples[:, i-1], *additional_args_pm_array[:, i-1])
+                            state_noise_samples[:, i-1], *[sub[i-1] for sub in additional_args_pm_list])
 
         outputs[:, i] = h(gt_states[:, i], U[:, i],
-                          obs_noise_samples[:, i], *additional_args_om_array[:, i])
+                          obs_noise_samples[:, i], *[sub[i] for sub in additional_args_om_list])
 
-    return gt_states, initial_cond, outputs, additional_args_pm_array, additional_args_om_array
+    return gt_states, initial_cond, outputs, additional_args_pm_list, additional_args_om_list
 
 
 def test_pbgf_linear(n=10, m=5, nt=10):

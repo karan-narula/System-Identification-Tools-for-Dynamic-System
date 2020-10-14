@@ -1,6 +1,7 @@
 import math
 import numpy as np
 import abc
+from collections import Iterable
 
 from estimators import sample_nlds
 
@@ -52,7 +53,7 @@ class AbstractDyn(object):
 
     def __init__(self, param_dict, expected_keys=[], state_keys=[], state_dot_keys=[]):
         # store the parameter dictionary for the vehicle dynamics
-        self.param_dict = param_dict
+        self.param_dict = param_dict.copy()
 
         # store expected keys of param dictionary
         self.expected_keys = expected_keys
@@ -109,25 +110,42 @@ class AbstractDyn(object):
         assert U.shape == (
             self.num_in, num_sol), "Incorrect size of input matrix"
 
-        def process_model(x, u, noise, dt): return self.forward_prop(
-            x, self.dxdt(x, u), dt) + noise
+        def process_model(x, u, noise, dt, param_dict): return self.forward_prop(
+            x, self.dxdt(x, u, param_dict), dt) + noise
 
         def observation_model(
-            x, u, noise): return self.output_model(x, u) + noise
+            x, u, noise, param_dict): return self.output_model(x, u, param_dict) + noise
+
+        # check size of array of parameter dictionary
+        for key in self.param_dict:
+            if not isinstance(self.param_dict[key], Iterable):
+                self.param_dict[key] = [self.param_dict[key]]*num_sol
+            else:
+                assert len(
+                    self.param_dict[key]) == num_sol, "Parameter {} should have the length of nt".format(key)
+
+        # convert param dictionary to additional input for process model
+        self.param_list = []
+        for i in range(num_sol):
+            param_dict = dict()
+            for key in self.param_dict:
+                param_dict[key] = self.param_dict[key][i]
+            self.param_list.append(param_dict)
 
         # get ground truth data, initial and output data
         dts = np.diff(T)
         dts = np.append(dts, dts[-1])
-        gt_states, initial_cond, outputs, additional_args_pm_array, additional_args_om_array = sample_nlds(
-            z0, U, num_sol, process_model, observation_model, self.num_out, Q=Q, P0=P0, R=R, additional_args_pm=[dts])
+        gt_states, initial_cond, outputs, additional_args_pm_list, additional_args_om_list = sample_nlds(
+            z0, U, num_sol, process_model, observation_model, self.num_out, Q=Q, P0=P0, R=R, additional_args_pm=[dts, self.param_list], additional_args_om=[self.param_list])
 
         # separately, get the derivative of ground truth
         gt_states_dot = np.zeros(gt_states.shape)
         for i in range(1, num_sol):
-            gt_states_dot[:, i-1] = self.dxdt(gt_states[:, i-1], U[:, i-1])
+            gt_states_dot[:, i -
+                          1] = self.dxdt(gt_states[:, i-1], U[:, i-1], self.param_list[i-1])
 
         gt_states_dot[:, num_sol -
-                      1] = self.dxdt(gt_states[:, num_sol-1], U[:, num_sol-1])
+                      1] = self.dxdt(gt_states[:, num_sol-1], U[:, num_sol-1], self.param_list[num_sol-1])
 
         # store varibles to avoid parsing things around?
         if store_variables:
@@ -146,15 +164,23 @@ class AbstractDyn(object):
             self.process_model = process_model
             self.observation_model = observation_model
 
-            self.additional_args_pm_array = additional_args_pm_array
-            self.additional_args_om_array = additional_args_om_array
+            self.additional_args_pm_list = additional_args_pm_list
+            self.additional_args_om_list = additional_args_om_list
 
         return gt_states, gt_states_dot, initial_cond, outputs
 
     @abc.abstractmethod
-    def dxdt(self, state, u):
+    def dxdt(self, state, u, param_dict):
         """
-        Differential model for the dynamic model.
+        Abstract Differential model for the dynamic model. Must be overwritten in derived classes.
+
+        Args:
+            state (numpy array [n x 1 or 1 x n]): current state vector
+            u (*): current input
+            param_dict (dict): dictionary of current parameters needed for defining the dynamics
+
+        Returns:
+            state_dot (numpy array [n x 1 or 1 x n]): current derivative of the state
         """
         return
 
@@ -173,20 +199,21 @@ class AbstractDyn(object):
         """
         return state + dt*state_dot
 
-    def output_model(self, state, u):
+    def output_model(self, state, u, param_dict):
         """
         Simulate the output of the system.
 
         Args:
             state (numpy array [n x 1]): current state vector
             u (*): current input
+            param_dict (dict): dictionary of current parameters needed for defining the dynamics
 
         Returns:
             output (numpy array [len(self.state_indices) + len(state_dot_indices) x 1]): observed state and
                 state derivatives of the system
 
         """
-        return np.concatenate((state[self.state_indices], self.dxdt(state, u)[0, self.state_dot_indices]))
+        return np.concatenate((state[self.state_indices], self.dxdt(state, u, param_dict)[0, self.state_dot_indices]))
 
     def cal_vxvy_from_coord(self, output=True):
         """
@@ -259,13 +286,14 @@ class FrontSteered(AbstractDyn):
             self.num_out += 2
         self.acc_output = acc_output
 
-    def dxdt(self, state, u):
+    def dxdt(self, state, u, param_dict):
         """
         Obtain derivative of the state based on current state and input
 
         Args:
             state (numpy array [6 x 1]): current state of the system consisting of x, y, theta, vx, vy and omega
             u (numpy array [3 x 1]): current input consisting of steering_angle, wf and wr
+            param_dict (dict): dictionary of current parameters needed for defining the dynamics
 
         Returns:
             state_dot (numpy array [6 x 1]): derivative of the states
@@ -284,33 +312,33 @@ class FrontSteered(AbstractDyn):
 
         # calculate lateral tire forces
         if vx != 0.0:
-            slip_ang_f = steering_angle - (vy + self.param_dict['lf']*omega)/vx
-            slip_ang_r = (self.param_dict['lr']*omega - vy)/vx
+            slip_ang_f = steering_angle - (vy + param_dict['lf']*omega)/vx
+            slip_ang_r = (param_dict['lr']*omega - vy)/vx
         else:
             slip_ang_f = 0.0
             slip_ang_r = 0.0
-        fy_f = self.param_dict['cyf']*slip_ang_f
-        fy_r = self.param_dict['cyr']*slip_ang_r
+        fy_f = param_dict['cyf']*slip_ang_f
+        fy_r = param_dict['cyr']*slip_ang_r
 
         # calculate longitudinal force
-        wheel_slip_f = (vx - self.param_dict['e_wr']*wf) / \
-            max(vx, self.param_dict['e_wr']*wf)
-        wheel_slip_r = (vx - self.param_dict['e_wr']*wr) / \
-            max(vx, self.param_dict['e_wr']*wr)
-        fx_f = self.param_dict['cxf']*wheel_slip_f
-        fx_r = self.param_dict['cxr']*wheel_slip_r
+        wheel_slip_f = (vx - param_dict['e_wr']*wf) / \
+            max(vx, param_dict['e_wr']*wf)
+        wheel_slip_r = (vx - param_dict['e_wr']*wr) / \
+            max(vx, param_dict['e_wr']*wr)
+        fx_f = param_dict['cxf']*wheel_slip_f
+        fx_r = param_dict['cxr']*wheel_slip_r
 
         # calculate lateral and longitudinal acceleration
         vx_dot = (fx_f*math.cos(steering_angle) + fx_r + fy_f *
-                  math.sin(steering_angle) + self.param_dict['mass']*vy*omega)/self.param_dict['mass']
+                  math.sin(steering_angle) + param_dict['mass']*vy*omega)/param_dict['mass']
         ax_inertial = vx_dot - vy*omega
         vy_dot = (fy_f*math.cos(steering_angle) + fy_r + fx_f *
-                  math.sin(steering_angle) - self.param_dict['mass']*vx*omega)/self.param_dict['mass']
+                  math.sin(steering_angle) - param_dict['mass']*vx*omega)/param_dict['mass']
         ay_inertial = vy_dot + vx*omega
 
         # calculate angular acceleration
-        omega_dot = (self.param_dict['lf']*(fy_f*math.cos(steering_angle) + fx_f *
-                                            math.sin(steering_angle)) - self.param_dict['lr']*fy_r)/self.param_dict['iz']
+        omega_dot = (param_dict['lf']*(fy_f*math.cos(steering_angle) + fx_f *
+                                       math.sin(steering_angle)) - param_dict['lr']*fy_r)/param_dict['iz']
 
         # kinematic model based on derived dynamic quantities
         x_dot = vx*math.cos(heading) - vy*math.sin(heading)
@@ -344,26 +372,26 @@ class FrontSteered(AbstractDyn):
 
         # calculate lateral tire forces
         if vx != 0.0:
-            slip_ang_f = steering_angle - (vy + self.param_dict['lf']*omega)/vx
-            slip_ang_r = (self.param_dict['lr']*omega - vy)/vx
+            slip_ang_f = steering_angle - (vy + param_dict['lf']*omega)/vx
+            slip_ang_r = (param_dict['lr']*omega - vy)/vx
         else:
             slip_ang_f = 0.0
             slip_ang_r = 0.0
-        fy_f = self.param_dict['cyf']*slip_ang_f
-        fy_r = self.param_dict['cyr']*slip_ang_r
+        fy_f = param_dict['cyf']*slip_ang_f
+        fy_r = param_dict['cyr']*slip_ang_r
 
         # calculate longitudinal force
-        wheel_slip_f = (vx - self.param_dict['e_wr']*wf) / \
-            max(vx, self.param_dict['e_wr']*wf)
-        wheel_slip_r = (vx - self.param_dict['e_wr']*wr) / \
-            max(vx, self.param_dict['e_wr']*wr)
-        fx_f = self.param_dict['cxf']*wheel_slip_f
-        fx_r = self.param_dict['cxr']*wheel_slip_r
+        wheel_slip_f = (vx - param_dict['e_wr']*wf) / \
+            max(vx, param_dict['e_wr']*wf)
+        wheel_slip_r = (vx - param_dict['e_wr']*wr) / \
+            max(vx, param_dict['e_wr']*wr)
+        fx_f = param_dict['cxf']*wheel_slip_f
+        fx_r = param_dict['cxr']*wheel_slip_r
 
         ax_inertial = (fx_f*math.cos(steering_angle) + fx_r + fy_f *
-                       math.sin(steering_angle))/self.param_dict['mass']
+                       math.sin(steering_angle))/param_dict['mass']
         ay_inertial = (fy_f*math.cos(steering_angle) + fy_r + fx_f *
-                       math.sin(steering_angle))/self.param_dict['mass']
+                       math.sin(steering_angle))/param_dict['mass']
 
         return np.array([[ax_inertial, ay_inertial]])
 
@@ -416,13 +444,14 @@ class RoverDyn(AbstractDyn):
         # specify expected dimensionality of input
         self.num_in = 2
 
-    def dxdt(self, state, u):
+    def dxdt(self, state, u, param_dict):
         """
         Obtain derivative of the state based on current state and input
 
         Args:
             state (numpy array [4 x 1]): current state of the system consisting of x, y, theta and vx
             u (numpy array [2 x 1]): current input consisting of steering angle and commanded velocity
+            param_dict (dict): dictionary of current parameters needed for defining the dynamics
 
         Returns:
             state_dot (numpy array [4 x 1]): derivative of the states
@@ -436,16 +465,16 @@ class RoverDyn(AbstractDyn):
         theta = state[self.state_dict['theta']]
         vx = state[self.state_dict['vx']]
 
-        ang_rate = math.tan(self.param_dict['c1']*steering_angle + self.param_dict['c2'])*vx/(
-            self.param_dict['c3'] + self.param_dict['c4']*vx**2)
-        vy = ang_rate*(self.param_dict['c8'] + self.param_dict['c9']*vx**2)
+        ang_rate = math.tan(param_dict['c1']*steering_angle + param_dict['c2'])*vx/(
+            param_dict['c3'] + param_dict['c4']*vx**2)
+        vy = ang_rate*(param_dict['c8'] + param_dict['c9']*vx**2)
 
         # calculate the derivatives
         x_dot = vx*math.cos(theta) - vy*math.sin(theta)
         y_dot = vx*math.sin(theta) + vy*math.cos(theta)
         heading_dot = ang_rate
-        vx_dot = self.param_dict['c5'] + self.param_dict['c6'] * \
-            (vx - vx_cmd) + self.param_dict['c7']*(vx - vx_cmd)**2
+        vx_dot = param_dict['c5'] + param_dict['c6'] * \
+            (vx - vx_cmd) + param_dict['c7']*(vx - vx_cmd)**2
 
         return np.array([[x_dot, y_dot, heading_dot, vx_dot]])
 
@@ -489,7 +518,7 @@ def partial_init(obj, class_type, expected_keys, est_params, param_dict, state_k
     obj.num_states += len(obj.est_params)
 
 
-def partial_dxdt(obj, class_type, state, u):
+def partial_dxdt(obj, class_type, state, u, param_dict):
     """
     Function to help calculate derivative of an Estimate class deriving from dynamic class. It does the calculation by the getting
     the states' derivatives from its parent's class and assuming that the estimated parameters are stationary (not drifting over time).
@@ -499,13 +528,14 @@ def partial_dxdt(obj, class_type, state, u):
         class_type (obj type): pass in the class of the object to be used when invoking super
         state (numpy array [num_states x 1]): current state of the system
         u (numpy array [num_in x 1]): current input
+        param_dict (dict): dictionary of current non-estimated parameters needed for defining the dynamics
 
     """
     # put the parameters into the dictionary
     for i, est_param in enumerate(obj.est_params):
-        obj.param_dict[est_param] = state[obj.num_dyn_states+i]
+        param_dict[est_param] = state[obj.num_dyn_states+i]
 
-    state_dot = super(class_type, obj).dxdt(state, u)
+    state_dot = super(class_type, obj).dxdt(state, u, param_dict)
     return np.concatenate((state_dot, np.zeros((1, len(obj.est_params)))), axis=1)
 
 
@@ -530,7 +560,7 @@ class RoverPartialDynEst(RoverDyn):
         partial_init(self, RoverPartialDynEst, expected_keys,
                      est_params, param_dict, state_keys, state_dot_keys)
 
-    def dxdt(self, state, u):
+    def dxdt(self, state, u, param_dict):
         """
         Obtain derivative of the state based on current state and input similar to RoverDyn. Derivatives of
         estimated parameters are zero, i.e. assuming they are constant and not drifting over time.
@@ -539,12 +569,13 @@ class RoverPartialDynEst(RoverDyn):
             state (numpy array [4+len(self.est_params) x 1]): current state of the system consisting of x, y, theta, vx 
                 and estimated parameters
             u (numpy array [2 x 1]): current input consisting of steering angle and commanded velocity
+            param_dict (dict): dictionary of current non-estimated parameters needed for defining the dynamics
 
         Returns:
             state_dot (numpy array [4+len(self.est_params) x 1]): derivative of the states
 
         """
-        return partial_dxdt(self, RoverPartialDynEst, state, u)
+        return partial_dxdt(self, RoverPartialDynEst, state, u, param_dict)
 
 
 class FrontDriveFrontSteer(AbstractDyn):
@@ -605,29 +636,30 @@ class FrontDriveFrontSteer(AbstractDyn):
         # specify expected dimensionality of input
         self.num_in = 2
 
-    def dxdt(self, state, u):
+    def dxdt(self, state, u, param_dict):
         """
         Obtain derivative of the state based on current state and input
 
         Args:
             state (numpy array [6 x 1]): current state of the system consisting of x, y, theta vx, vy and w
             u (numpy array [2 x 1]): current input consisting of linear acceleration and steering angle
+            param_dict (dict): dictionary of current parameters needed for defining the dynamics
 
         Returns:
             state_dot (numpy array [6 x 1]): derivative of the states
 
         """
         # get the parameters
-        m = self.param_dict['m']
-        lr = self.param_dict['lr']
-        lf = self.param_dict['lf']
-        cr = self.param_dict['cr']
-        cf = self.param_dict['cf']
-        fx = self.param_dict['fx']
-        rc = self.param_dict['rc']
-        iz = self.param_dict['iz']
-        fr = self.param_dict['fr']
-        g = self.param_dict['g']
+        m = param_dict['m']
+        lr = param_dict['lr']
+        lf = param_dict['lf']
+        cr = param_dict['cr']
+        cf = param_dict['cf']
+        fx = param_dict['fx']
+        rc = param_dict['rc']
+        iz = param_dict['iz']
+        fr = param_dict['fr']
+        g = param_dict['g']
 
         # get the inputs
         a_req = u[0]
@@ -684,7 +716,7 @@ class FrontDriveFrontSteerEst(FrontDriveFrontSteer):
         partial_init(self, FrontDriveFrontSteerEst, expected_keys,
                      est_params, param_dict, state_keys, state_dot_keys)
 
-    def dxdt(self, state, u):
+    def dxdt(self, state, u, param_dict):
         """
         Obtain derivative of the state based on current state and input similar to RoverDyn. Derivatives of
         estimated parameters are zero, i.e. assuming they are constant and not drifting over time.
@@ -693,12 +725,13 @@ class FrontDriveFrontSteerEst(FrontDriveFrontSteer):
             state (numpy array [6+len(self.est_params) x 1]): current state of the system consisting of x, y, theta, vx,
                 vy, w and estimated parameters
             u (numpy array [2 x 1]): current input consisting of linear acceleration and steering angle
+            param_dict (dict): dictionary of current non-estimated parameters needed for defining the dynamics
 
         Returns:
             state_dot (numpy array [6+len(self.est_params) x 1]): derivative of the states
 
         """
-        return partial_dxdt(self, FrontDriveFrontSteerEst, state, u)
+        return partial_dxdt(self, FrontDriveFrontSteerEst, state, u, param_dict)
 
 
 def sample_linear(T, cruise_time, *args):
