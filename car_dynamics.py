@@ -488,7 +488,7 @@ class RoverDyn(AbstractDyn):
         return np.array([[x_dot, y_dot, heading_dot, vx_dot]])
 
 
-def partial_init(obj, class_type, expected_keys, est_params, param_dict, state_keys, state_dot_keys):
+def partial_init(obj, class_type, expected_keys, est_params, param_dict, state_keys, state_dot_keys, simulate_gt):
     """
     Function to help initialise an Estimate class deriving from the dynamic class.
 
@@ -500,22 +500,30 @@ def partial_init(obj, class_type, expected_keys, est_params, param_dict, state_k
         param_dict (dict): dictionary of parameters needed for defining the dynamics
         state_keys (list): list of states string that are observed by sensor
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
+        simulate_gt (bool): specify whether model is during the stage of simulating ground truth
 
     """
-    # check if est_params are in expected keys
-    for est_param in est_params:
-        assert est_param in expected_keys, "Parameter {} to be estimated is not in expected keys".format(
-            est_param)
-        expected_keys.remove(est_param)
+    # store if we are simulating ground truth or not
+    obj.simulate_gt = simulate_gt
 
-    # remove parameters to be estimated from dictionary
-    pruned_param_dict = param_dict.copy()
-    for est_param in est_params:
-        if est_param in pruned_param_dict:
-            del pruned_param_dict[est_param]
+    if obj.simulate_gt:
+        super(class_type, obj).__init__(param_dict, state_keys,
+                                        state_dot_keys=state_dot_keys, expected_keys=expected_keys)
+    else:
+        # check if est_params are in expected keys
+        for est_param in est_params:
+            assert est_param in expected_keys, "Parameter {} to be estimated is not in expected keys".format(
+                est_param)
+            expected_keys.remove(est_param)
 
-    super(class_type, obj).__init__(pruned_param_dict, state_keys,
-                                    state_dot_keys=state_dot_keys, expected_keys=expected_keys)
+        # remove parameters to be estimated from dictionary
+        pruned_param_dict = param_dict.copy()
+        for est_param in est_params:
+            if est_param in pruned_param_dict:
+                del pruned_param_dict[est_param]
+
+        super(class_type, obj).__init__(pruned_param_dict, state_keys,
+                                        state_dot_keys=state_dot_keys, expected_keys=expected_keys)
 
     # append state dictionary
     for i, est_param in enumerate(est_params):
@@ -525,6 +533,33 @@ def partial_init(obj, class_type, expected_keys, est_params, param_dict, state_k
     obj.est_params = list(est_params)
     obj.num_dyn_states = obj.num_states
     obj.num_states += len(obj.est_params)
+
+
+def re_initialise(obj):
+    """
+    Function to help re-initialise an Estimate class deriving from the dynamic class after simulation of ground truth data is completed.
+
+    Args:
+        obj (Est obj): object in which the re-initialisation is being performed (self)
+
+    """
+    if obj.simulate_gt:
+        # turn off simulation mode
+        obj.simulate_gt = False
+
+        # check if est_params are in expected keys
+        for est_param in obj.est_params:
+            assert est_param in obj.expected_keys, "Parameter {} to be estimated is not in expected keys".format(
+                est_param)
+            obj.expected_keys.remove(est_param)
+
+        # remove parameters to be estimated from dictionary
+        for est_param in obj.est_params:
+            if est_param in obj.param_dict:
+                del obj.param_dict[est_param]
+
+        # check if param dictionary is valid
+        assert obj.check_param_dict(), "Parameter dictionary does not contain all requried keys"
 
 
 def partial_dxdt(obj, class_type, state, u, param_dict):
@@ -541,8 +576,9 @@ def partial_dxdt(obj, class_type, state, u, param_dict):
 
     """
     # put the parameters into the dictionary
-    for i, est_param in enumerate(obj.est_params):
-        param_dict[est_param] = state[obj.num_dyn_states+i]
+    if not obj.simulate_gt:
+        for i, est_param in enumerate(obj.est_params):
+            param_dict[est_param] = state[obj.num_dyn_states+i]
 
     state_dot = super(class_type, obj).dxdt(state, u, param_dict)
     return np.concatenate((state_dot, np.zeros((1, len(obj.est_params)))), axis=1)
@@ -560,14 +596,21 @@ class RoverPartialDynEst(RoverDyn):
         est_params (list): list of parameter strings to be estimated with the states
         state_keys (list): list of states string that are observed by sensor
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
+        simulate_gt (bool): specify whether model is during the stage of simulating ground truth
 
     """
 
-    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[]):
+    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False):
         expected_keys = ["c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"]
 
         partial_init(self, RoverPartialDynEst, expected_keys,
-                     est_params, param_dict, state_keys, state_dot_keys)
+                     est_params, param_dict, state_keys, state_dot_keys, simulate_gt)
+
+    def re_initialise(self):
+        """
+        re-initialise after ground truth data has been generated using its parent's derivative and raw possibly time-varying parameters
+        """
+        re_initialise(self)
 
     def dxdt(self, state, u, param_dict):
         """
@@ -716,14 +759,21 @@ class FrontDriveFrontSteerEst(FrontDriveFrontSteer):
         est_params (list): list of parameter strings to be estimated with the states
         state_keys (list): list of states string that are observed by sensor
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
+        simulate_gt (bool): specify whether model is during the stage of simulating ground truth
 
     """
 
-    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[]):
+    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False):
         expected_keys = ["fx", "cf", "cr", "lf", "lr", "m", "iz", "rc", "fr"]
 
         partial_init(self, FrontDriveFrontSteerEst, expected_keys,
-                     est_params, param_dict, state_keys, state_dot_keys)
+                     est_params, param_dict, state_keys, state_dot_keys, simulate_gt)
+
+    def re_initialise(self):
+        """
+        re-initialise after ground truth data has been generated using its parent's derivative and raw possibly time-varying parameters
+        """
+        re_initialise(self)
 
     def dxdt(self, state, u, param_dict):
         """
