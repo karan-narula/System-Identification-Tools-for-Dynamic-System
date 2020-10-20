@@ -89,7 +89,7 @@ class AbstractDyn(object):
 
         return True
 
-    def sample_nlds(self, z0, U, T, Q=None, P0=None, R=None, store_variables=True):
+    def sample_nlds(self, z0, U, T, Q=None, P0=None, R=None, store_variables=True, overwrite_keys=[], overwrite_vals=[]):
         """
         Retrieve ground truth, initial and output data (SNLDS: Stochastic non-linear dynamic system)
 
@@ -101,6 +101,8 @@ class AbstractDyn(object):
             P0 (numpy array [n x n]): initial covariance for the initial estimate around the ground truth
             R (numpy array [nr x nr]): covariance matrix of the noise involved in observed sensor data
             store_variables (bool): whether to store ground truth, initial and output arrays within the class
+            overwrite_keys (list): list of state keys to be overwritten
+            overwrite_vals (list): list of ground truth values to overwrite state propagation
 
         """
         # check sizes of received matrices
@@ -132,11 +134,18 @@ class AbstractDyn(object):
                 param_dict[key] = self.param_dict[key][i]
             self.param_list.append(param_dict)
 
+        # obtain indices of ground truth states to be overwritten
+        overwrite_inds = []
+        for key in overwrite_keys:
+            assert key in self.state_dict.keys(
+            ), "State key {} to be overwritten doesn't exist".format(key)
+            overwrite_inds.append(self.state_dict[key])
+
         # get ground truth data, initial and output data
         dts = np.diff(T)
         dts = np.append(dts, dts[-1])
-        gt_states, initial_cond, outputs, additional_args_pm_list, additional_args_om_list = sample_nlds(
-            z0, U, num_sol, process_model, observation_model, self.num_out, Q=Q, P0=P0, R=R, additional_args_pm=[dts, self.param_list], additional_args_om=[self.param_list])
+        gt_states, initial_cond, outputs, additional_args_pm_list, additional_args_om_list = sample_nlds(z0, U, num_sol, process_model, observation_model, self.num_out, Q=Q, P0=P0, R=R, additional_args_pm=[
+                                                                                                         dts, self.param_list], additional_args_om=[self.param_list], overwrite_inds=overwrite_inds, overwrite_vals=overwrite_vals)
 
         # separately, get the derivative of ground truth
         gt_states_dot = np.zeros(gt_states.shape)

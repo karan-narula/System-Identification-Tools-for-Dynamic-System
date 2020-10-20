@@ -742,7 +742,7 @@ def fit_data_rover(states, U, dt, vxdot=np.array([]), yawrate=np.array([]), vy=n
     return parameters
 
 
-def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, additional_args_pm=[], additional_args_om=[]):
+def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, additional_args_pm=[], additional_args_om=[], overwrite_inds=[], overwrite_vals=[]):
     """
     Retrieve ground truth, initial and output data (SNLDS: Stochastic non-linear dynamic system)
 
@@ -759,6 +759,8 @@ def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, additional_ar
         R (numpy array [nr x nr]): covariance matrix of the noise involved in h function
         additional_args_pm (list): list of additional arguments to be passed to function f
         additional_args_om (list): list of additional arguments to be passed to function h
+        overwrite_inds (list): list of state indices to be overwritten
+        overwrite_vals (list): list of ground truth values to overwrite state propagation
 
     Returns:
         gt_states (numpy array [n x nt]): ground truth states at different time instances
@@ -807,6 +809,20 @@ def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, additional_ar
                 argument) == nt, "If iterable argument for om is provided, it should have the length of nt"
             additional_args_om_list[i] = argument
 
+    # check the information to be overwritten
+    assert len(overwrite_inds) == len(
+        overwrite_vals), "Inconsitent sizes of information to be overwritten"
+    for ind in overwrite_inds:
+        assert ind >= 0 and ind < len(
+            z0), "Overwrite index not within range [{},{})".format(0, len(z0))
+
+    overwrite_vals_array = np.zeros((len(overwrite_inds), nt))
+    for i, val in enumerate(overwrite_vals):
+        if isinstance(val, Iterable):
+            assert len(
+                val) == nt, "Iterable information should have the length of nt"
+        overwrite_vals_array[i] = val
+
     # generate noise samples for stochastic model and observations
     state_noise_samples = sample_gaussian(np.zeros(z0.shape), Q, nt)
     obs_noise_samples = sample_gaussian(
@@ -823,6 +839,9 @@ def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, additional_ar
     for i in range(1, nt):
         gt_states[:, i] = f(gt_states[:, i-1], U[:, i-1],
                             state_noise_samples[:, i-1], *[sub[i-1] for sub in additional_args_pm_list])
+
+        # overwrite information as per user requirement
+        gt_states[overwrite_inds, i] = overwrite_vals_array[:, i]
 
         outputs[:, i] = h(gt_states[:, i], U[:, i],
                           obs_noise_samples[:, i], *[sub[i] for sub in additional_args_om_list])
