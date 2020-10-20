@@ -58,6 +58,9 @@ class AbstractDyn(object):
         # store expected keys of param dictionary
         self.expected_keys = expected_keys
 
+        # copy state dict from global
+        self.state_dict = self.global_state_dict.copy()
+
         # check if param dictionary is valid
         assert self.check_param_dict(), "Parameter dictionary does not contain all requried keys"
 
@@ -277,7 +280,7 @@ class FrontSteered(AbstractDyn):
 
     """
     # state dictionary for this model
-    state_dict = {'x': 0, 'y': 1, 'theta': 2, 'vx': 3, 'vy': 4, 'omega': 5}
+    global_state_dict = {'x': 0, 'y': 1, 'theta': 2, 'vx': 3, 'vy': 4, 'omega': 5}
 
     def __init__(self, param_dict, state_keys, state_dot_keys=[], acc_output=False):
         # expected parameter keys
@@ -440,7 +443,7 @@ class RoverDyn(AbstractDyn):
 
     """
     # state dictionary for this model
-    state_dict = {'x': 0, 'y': 1, 'theta': 2, 'vx': 3}
+    global_state_dict = {'x': 0, 'y': 1, 'theta': 2, 'vx': 3}
 
     def __init__(self, param_dict, state_keys, state_dot_keys=[], expected_keys=None):
         # expected parameter keys
@@ -675,7 +678,7 @@ class FrontDriveFrontSteer(AbstractDyn):
 
     """
     # state dictionary for this model
-    state_dict = {'x': 0, 'y': 1, 'theta': 2, 'vx': 3, 'vy': 4, 'w': 5}
+    global_state_dict = {'x': 0, 'y': 1, 'theta': 2, 'vx': 3, 'vy': 4, 'w': 5}
 
     def __init__(self, param_dict, state_keys, state_dot_keys=[], expected_keys=None):
         # expected parameter keys

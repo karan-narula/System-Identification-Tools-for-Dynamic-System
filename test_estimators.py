@@ -107,7 +107,7 @@ def simulate_data(dyn_class, param_dict, U, T, **kwargs):
 
     """
     # retrieve state dictionary from dynamic class
-    state_dict = dyn_class.state_dict
+    state_dict = dyn_class.global_state_dict
 
     # check if expected inputs are iterable, if not convert to as such
     est_params = kwargs.get('est_params', [])
