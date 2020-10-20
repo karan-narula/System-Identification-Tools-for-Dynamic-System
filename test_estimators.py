@@ -24,6 +24,8 @@ def plot_stuff(dynamic_obj, est_states, num_row=1):
     # first figure for the parameters
     num_est_params = len(dynamic_obj.est_params)
     num_main_states = dynamic_obj.num_states - num_est_params
+    if num_est_params < num_row:
+        num_row = num_est_params
     num_col = int(math.ceil(num_est_params/float(num_row)))
     plt.figure(1)
     for i, j in enumerate(range(num_main_states, dynamic_obj.num_states)):
