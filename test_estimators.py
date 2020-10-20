@@ -133,7 +133,12 @@ def simulate_data(dyn_class, param_dict, U, T, **kwargs):
     temp = [0.0]*len(state_dict)
     for key in state_dict:
         temp[state_dict[key]] = kwargs.get('std_' + key, 0.0)**2
-    temp.extend([0.0]*len(est_params))
+    time_varying_q = kwargs.get('time_varying_q', 1e-4)
+    for est_param in est_params:
+        if isinstance(param_dict[est_param], Iterable):
+            temp.append(time_varying_q)
+        else:
+            temp.append(0.0)
     Q = np.diag(temp)
 
     # covariance matrix of additive GWN in observation model
@@ -154,6 +159,8 @@ def simulate_data(dyn_class, param_dict, U, T, **kwargs):
     R = np.diag(vars_out)
 
     # adjust param dict when full array is not specified
+    overwrite_keys = []
+    overwrite_vals = []
     for key in param_dict:
         if isinstance(param_dict[key], Iterable):
             if len(param_dict[key]) != len(T):
@@ -165,6 +172,9 @@ def simulate_data(dyn_class, param_dict, U, T, **kwargs):
                 for item in temp:
                     param_dict[key][ind:ind+num_each] = [item]*num_each
                     ind += num_each
+            if key in est_params:
+                overwrite_keys.append(key)
+                overwrite_vals.append(param_dict[key].copy())
 
     # ground truth initial condition
     z0 = [0.0]*len(state_dict)
@@ -182,8 +192,10 @@ def simulate_data(dyn_class, param_dict, U, T, **kwargs):
 
     # create the ground truth and noisy states
     dynamic_obj = dyn_class(
-        param_dict, est_params, state_keys=output_keys, state_dot_keys=output_dot_keys)
-    dynamic_obj.sample_nlds(z0, U, T, Q=Q, P0=P0, R=R, store_variables=True)
+        param_dict, est_params, state_keys=output_keys, state_dot_keys=output_dot_keys, simulate_gt=True)
+    dynamic_obj.sample_nlds(z0, U, T, Q=Q, P0=P0, R=R, store_variables=True,
+                            overwrite_keys=overwrite_keys, overwrite_vals=overwrite_vals)
+    dynamic_obj.re_initialise()
 
     return dynamic_obj
 
