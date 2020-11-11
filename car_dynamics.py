@@ -767,7 +767,8 @@ class FrontDriveFrontSteerEst(FrontDriveFrontSteer):
     """
 
     def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False):
-        expected_keys = ["fx", "cf", "cr", "lf", "lr", "m", "iz", "rc", "fr"]
+        expected_keys = ["fx", "cf", "cr", "lf",
+                         "lr", "m", "iz", "rc", "fr", "g"]
 
         partial_init(self, FrontDriveFrontSteerEst, expected_keys,
                      est_params, param_dict, state_keys, state_dot_keys, simulate_gt)
