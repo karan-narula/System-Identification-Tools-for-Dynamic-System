@@ -24,7 +24,7 @@ def fit_and_plot(A1, A2, B, all_params, model_tag, axs, t_vec, ax, ay, vx, vy, w
     # save parameters to the dictionary
     param_dict = {}
     for key, parameter in zip(est_params, parameters):
-        param_dict[key] = parameter
+        param_dict[key] = parameter[0]
     all_params['param_list'].append(param_dict)
     all_params['mse'].append(mse)
     all_params['model'].append(model_tag)
