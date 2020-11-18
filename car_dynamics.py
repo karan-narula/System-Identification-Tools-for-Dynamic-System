@@ -808,10 +808,9 @@ class RearDriveFrontSteer(AbstractDyn):
     (i) Bicycle model assumption- treat two front wheels as one (same tire properties & steering angles), similarly for two rear wheels
     (ii) Only in-plane motions are considered - pitch and roll dynamics are neglected, load changes neglected.
     (iii) Road is flat (zero gradient)
-    (iv) Neglect aerodynamic force
+    (iv) Aerodynamic drag is considered but wind speed is ignored
     (v) Longitudinal and lateral tire forces are a linear function of slip ratio and slip angle, i.e. small slip ratio and slip angle
     (vi) Small tire velocity angle, tan(theta) ~ theta
-    (vii Front and back stiffness coefficients are the identical
 
     The model parameters are:
         m: mass of the vehicle (kg)
@@ -822,8 +821,11 @@ class RearDriveFrontSteer(AbstractDyn):
         rer: rear effective wheel radius (m)
         fr: coefficient of rolling resistance (N/A)
         g: gravitational acceleration (m/s^2)
-        c: cornering stiffness coefficient
-        d: longitudinal stiffness coefficient
+        sc_f: cornering stiffness coefficient of the front wheel
+        sc_r: cornering stiffness coefficient of the rear wheel
+        sl_f: longitudinal stiffness coefficient of the front wheel
+        sl_r: longitudinal stiffness coefficient of the rear wheel
+        cd: aero dynamic drag coefficient
 
     Args:
         param_dict (dict): dictionary of parameters needed for defining the dynamics
@@ -839,8 +841,8 @@ class RearDriveFrontSteer(AbstractDyn):
     def __init__(self, param_dict, state_keys, state_dot_keys=[], expected_keys=None):
         # expected parameter keys
         if expected_keys is None:
-            expected_keys = ["m", "iz", "lf", "lr", "ref",
-                             "rer", "fr", "g", "c", "d"]
+            expected_keys = ["m", "iz", "lf", "lr", "ref", "rer", "fr",
+                             "g", "sc_f", "sc_r", "sl_f", "sl_r", "af", "rho", "cd"]
         super(RearDriveFrontSteer, self).__init__(param_dict, expected_keys=expected_keys,
                                                   state_keys=state_keys, state_dot_keys=state_dot_keys)
         # specify expected dimensionality of input
@@ -868,8 +870,13 @@ class RearDriveFrontSteer(AbstractDyn):
         rer = param_dict["rer"]
         fr = param_dict["fr"]
         g = param_dict["g"]
-        c = param_dict["c"]
-        d = param_dict["d"]
+        sc_r = param_dict["sc_r"]
+        sc_f = param_dict["sc_f"]
+        sl_r = param_dict["sl_r"]
+        sl_f = param_dict["sl_f"]
+        af = param_dict["af"]
+        rho = param_dict["rho"]
+        cd = param_dict["cd"]
 
         # get the inputs
         wf = u[0]
@@ -881,6 +888,9 @@ class RearDriveFrontSteer(AbstractDyn):
         vx = state[self.state_dict['vx']]
         vy = state[self.state_dict['vy']]
         w = state[self.state_dict['w']]
+
+        # compute aero dynamic force
+        f_aero = 0.5*rho*cd*af*(vx**2)
 
         # calculate longitudinal slip ratio
         sigma_xf = ref*wf - vx
@@ -912,8 +922,8 @@ class RearDriveFrontSteer(AbstractDyn):
                 sigma_xr = 0.0
 
         # calculate logitudinal tire forces
-        fxf = d*sigma_xf
-        fxr = d*sigma_xr
+        fxf = sl_f*sigma_xf
+        fxr = sl_r*sigma_xr
 
         # calculate rolling resistance
         rx = fr*m*g
@@ -935,15 +945,15 @@ class RearDriveFrontSteer(AbstractDyn):
         alpha_r = -theta_vr
 
         # calculate lateral tire force
-        fyf = c*alpha_f
-        fyr = c*alpha_r
+        fyf = sc_f*alpha_f
+        fyr = sc_r*alpha_r
 
         # calculate the state derivatives
         x_dot = vx*math.cos(theta) - vy*math.sin(theta)
         y_dot = vy*math.cos(theta) + vx*math.sin(theta)
         theta_dot = w
         vx_dot = (fxr + fxf*math.cos(steering_angle) - fyf *
-                  math.sin(steering_angle) - rx + m*vy*w)/m
+                  math.sin(steering_angle) - rx - f_aero + m*vy*w)/m
         vy_dot = (fyr + fyf*math.cos(steering_angle) +
                   fxf*math.sin(steering_angle) - m*vx*w)/m
         w_dot = (lf*fxf*math.sin(steering_angle) + lf *
@@ -969,8 +979,8 @@ class RearDriveFrontSteerEst(RearDriveFrontSteer):
     """
 
     def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False):
-        expected_keys = ["m", "iz", "lf", "lr", "ref",
-                         "rer", "fr", "g", "c", "d"]
+        expected_keys = ["m", "iz", "lf", "lr", "ref", "rer", "fr",
+                         "g", "sc_f", "sc_r", "sl_f", "sl_r", "af", "rho", "cd"]
 
         partial_init(self, RearDriveFrontSteerEst, expected_keys,
                      est_params, param_dict, state_keys, state_dot_keys, simulate_gt)
