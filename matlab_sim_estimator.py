@@ -51,7 +51,7 @@ def fit_and_plot(A1, A2, B, all_params, model_tag, axs, t_vec, ax, ay, est_param
     axs[1].grid(True, "both")
 
 
-def least_square_test(param_dict, data):
+def least_square_test(param_dict, data, threshold_ws=20.0):
     # get the constants from the dictionary
     m = param_dict["m"]
     iz = param_dict["iz"]
@@ -86,7 +86,6 @@ def least_square_test(param_dict, data):
         steering_angle = 0.5*(wheelangle[:, 0:1] + wheelangle[:, 1:2])
 
         # use wheel speed to threshold data when the vehicle is moving
-        threshold_ws = 20.0
         filter_condition = (np.abs(wr) > threshold_ws).flatten()
         filter_condition = np.logical_and(
             filter_condition, friction == ref_friction)
@@ -614,7 +613,8 @@ if __name__ == '__main__':
                      'std_vx_dot_out': 0.15,
                      'std_vy_dot_out': 0.15,
                      'std_theta_dot_out': math.pi/180.0,
-                     'time_varying_q': 0.0}
+                     'time_varying_q': 0.0,
+                     'threshold_ws': 20.0}
     configuration['data_state_mapping'] = {
         'x': 'x', 'y': 'y', 'theta': 'heading', 'vx': 'vx', 'vy': 'vy', 'w': 'yawrate'}
     dynamic_obj = create_dyn_obj(
@@ -628,11 +628,11 @@ if __name__ == '__main__':
     for mat_file in mat_files:
         # read data
         data = loadmat(mat_file)
-        least_square_test(param_dict, data)
 
-        # quickly plot friction just to see
-        plt.plot(data['friction'])
-        plt.show()
+        # perform lls fitting
+        lls_params = least_square_test(
+            param_dict, data, threshold_ws=configuration['threshold_ws'])
+
 
         # create process and observation models
         extract_model(data, dynamic_obj)
