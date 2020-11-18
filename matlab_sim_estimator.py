@@ -618,9 +618,9 @@ if __name__ == '__main__':
     print(data.keys())
     radii = data['wheelradii'][0]
     param_dict = ODict([('m', float(data['m'])), ('iz', float(data['I'])), ('lf', float(data['lf'])), ('lr', float(
-        data['lr'])), ('ref', 0.5*(float(radii[0])+float(radii[1]))), ('rer', 0.5*(float(radii[2])+float(radii[3]))), ('g', 9.81)])
+        data['lr'])), ('ref', 0.5*(float(radii[0])+float(radii[1]))), ('rer', 0.5*(float(radii[2])+float(radii[3]))), ('g', 9.81), ('rho', 1.225), ('af', 1.6 + 0.00056*(float(data['m']) - 765.0)), ('sl_f', 0.0)])
 
-    # create dynamic object and get initial condition
+    # configuration for testing the estimator + create dynamic object
     configuration = {'output_keys': ['x', 'y'],
                      'output_data_keys': ['x', 'y'],
                      'output_dot_keys': ['vx', 'vy'],
