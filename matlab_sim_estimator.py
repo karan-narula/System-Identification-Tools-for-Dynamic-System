@@ -12,7 +12,7 @@ from car_dynamics import RearDriveFrontSteerEst
 from test_estimators import create_filtered_estimates
 
 
-def fit_and_plot(A1, A2, B, all_params, model_tag, axs, t_vec, ax, ay, vx, vy, w, est_params=['sl_r','sl_f', 'sc_r', 'sc_f', 'fr']):
+def fit_and_plot(A1, A2, B, all_params, model_tag, axs, t_vec, ax, ay, est_params=['sl_r', 'sl_f', 'sc_r', 'sc_f', 'fr']):
     A = np.concatenate((A1, A2), axis=0)
     # perform least square
     parameters, residuals, _, _ = np.linalg.lstsq(A, B, rcond=None)
@@ -37,14 +37,14 @@ def fit_and_plot(A1, A2, B, all_params, model_tag, axs, t_vec, ax, ay, vx, vy, w
 
     # plot the comparison
     axs[0].plot(t_vec, ax, label='true')
-    axs[0].plot(t_vec, np.matmul(A1, parameters) + vy*w, label='fit')
+    axs[0].plot(t_vec, np.matmul(A1, parameters), label='fit')
     axs[0].set_xlabel('Time')
     axs[0].set_ylabel('vx dot')
     axs[0].legend()
     axs[0].grid(True, "both")
 
     axs[1].plot(t_vec, ay, label='true')
-    axs[1].plot(t_vec, np.matmul(A2, parameters) - vx*w, label='fit')
+    axs[1].plot(t_vec, np.matmul(A2, parameters), label='fit')
     axs[1].set_xlabel('Time')
     axs[1].set_ylabel('vy dot')
     axs[1].legend()
@@ -161,14 +161,13 @@ def least_square_test(param_dict, data):
         ## first least square: separate front and back coeffs + don't neglect driven wheel long. force
         # construct matrices
         B = np.concatenate((ax, ay))
-        B -= np.concatenate((vy*w, -vx*w))
         A1 = np.concatenate((sigma_xr/m, sigma_xf*np.cos(steering_angle)/m,
                              np.zeros(alpha_f.shape), -alpha_f*np.sin(steering_angle)/m, -rx/m), axis=1)
         A2 = np.concatenate((np.zeros(alpha_f.shape), sigma_xf*np.sin(steering_angle)/m,
                              alpha_r/m, alpha_f*np.cos(steering_angle)/m, np.zeros(alpha_f.shape)), axis=1)
         model_tag = "separate front & back coeffs + don't neglect driven wheel long. force + no aerodynamic drag"
-        fit_and_plot(A1, A2, B, all_params[ref_friction],
-                     model_tag, axs[0, :], t_vec, ax, ay, vx, vy, w, est_params=['sl_r','sl_f', 'sc_r', 'sc_f', 'fr'])
+        fit_and_plot(A1, A2, B, all_params[ref_friction], model_tag, axs[0, :], t_vec, ax, ay, est_params=[
+                     'sl_r', 'sl_f', 'sc_r', 'sc_f', 'fr'])
 
         ## second least square: separate front and back coeffs + neglect driven wheel long. force
         # construct matrices
@@ -177,8 +176,8 @@ def least_square_test(param_dict, data):
         A2 = np.concatenate((np.zeros(alpha_f.shape),
                              alpha_r/m, alpha_f*np.cos(steering_angle)/m, np.zeros(alpha_f.shape)), axis=1)
         model_tag = "separate front & back coeffs + neglect driven wheel long. force + no aerodynamic drag"
-        fit_and_plot(A1, A2, B, all_params[ref_friction],
-                     model_tag, axs[1, :], t_vec, ax, ay, vx, vy, w, est_params=['sl_r', 'sc_r', 'sc_f', 'fr'])
+        fit_and_plot(A1, A2, B, all_params[ref_friction], model_tag, axs[1, :], t_vec, ax, ay, est_params=[
+                     'sl_r', 'sc_r', 'sc_f', 'fr'])
 
         ## third least square: same front and back coeffs + don't neglect driven wheel long. force
         # construct matrices
@@ -187,8 +186,8 @@ def least_square_test(param_dict, data):
         A2 = np.concatenate((sigma_xf*np.sin(steering_angle)/m,
                              alpha_r/m + alpha_f*np.cos(steering_angle)/m, np.zeros(alpha_f.shape)), axis=1)
         model_tag = "same front & back coeffs + don't neglect driven wheel long. force + no aerodynamic drag"
-        fit_and_plot(A1, A2, B, all_params[ref_friction],
-                     model_tag, axs[2, :], t_vec, ax, ay, vx, vy, w, est_params=['sl_r', 'sc_r', 'fr'])
+        fit_and_plot(A1, A2, B, all_params[ref_friction], model_tag,
+                     axs[2, :], t_vec, ax, ay, est_params=['sl_r', 'sc_r', 'fr'])
 
         ## fourth least square: same front and back coeffs + neglect driven wheel long. force
         # construct matrices
@@ -197,8 +196,8 @@ def least_square_test(param_dict, data):
         A2 = np.concatenate((np.zeros(alpha_f.shape),
                              alpha_r/m + alpha_f*np.cos(steering_angle)/m, np.zeros(alpha_f.shape)), axis=1)
         model_tag = "same front & back coeffs + neglect driven wheel long. force + no aerodynamic drag"
-        fit_and_plot(A1, A2, B, all_params[ref_friction],
-                     model_tag, axs[3, :], t_vec, ax, ay, vx, vy, w, est_params=['sl_r', 'sc_r', 'fr'])
+        fit_and_plot(A1, A2, B, all_params[ref_friction], model_tag,
+                     axs[3, :], t_vec, ax, ay, est_params=['sl_r', 'sc_r', 'fr'])
 
         ### The second subset of figures considering aerodynamic drag
         fig, axs = plt.subplots(4, 2, constrained_layout=True, num=2)
@@ -211,8 +210,8 @@ def least_square_test(param_dict, data):
         A2 = np.concatenate((np.zeros(alpha_f.shape), sigma_xf*np.sin(steering_angle)/m,
                              alpha_r/m, alpha_f*np.cos(steering_angle)/m, np.zeros(alpha_f.shape), np.zeros(vx.shape)), axis=1)
         model_tag = "separate front & back coeffs + don't neglect driven wheel long. force + aerodynamic drag"
-        fit_and_plot(A1, A2, B, all_params[ref_friction],
-                     model_tag, axs[0, :], t_vec, ax, ay, vx, vy, w, est_params=['sl_r','sl_f', 'sc_r', 'sc_f', 'fr', 'da'])
+        fit_and_plot(A1, A2, B, all_params[ref_friction], model_tag, axs[0, :], t_vec, ax, ay, est_params=[
+                     'sl_r', 'sl_f', 'sc_r', 'sc_f', 'fr', 'da'])
 
         ## second least square: separate front and back coeffs + neglect driven wheel long. force
         # construct matrices
@@ -221,8 +220,8 @@ def least_square_test(param_dict, data):
         A2 = np.concatenate((np.zeros(alpha_f.shape),
                              alpha_r/m, alpha_f*np.cos(steering_angle)/m, np.zeros(alpha_f.shape), np.zeros(vx.shape)), axis=1)
         model_tag = "separate front & back coeffs + neglect driven wheel long. force + aerodynamic drag"
-        fit_and_plot(A1, A2, B, all_params[ref_friction],
-                     model_tag, axs[1, :], t_vec, ax, ay, vx, vy, w, est_params=['sl_r', 'sc_r', 'sc_f', 'fr', 'da'])
+        fit_and_plot(A1, A2, B, all_params[ref_friction], model_tag, axs[1, :], t_vec, ax, ay, est_params=[
+                     'sl_r', 'sc_r', 'sc_f', 'fr', 'da'])
 
         ## third least square: same front and back coeffs + don't neglect driven wheel long. force
         # construct matrices
@@ -231,8 +230,8 @@ def least_square_test(param_dict, data):
         A2 = np.concatenate((sigma_xf*np.sin(steering_angle)/m,
                              alpha_r/m + alpha_f*np.cos(steering_angle)/m, np.zeros(alpha_f.shape), np.zeros(vx.shape)), axis=1)
         model_tag = "same front & back coeffs + don't neglect driven wheel long. force + aerodynamic drag"
-        fit_and_plot(A1, A2, B, all_params[ref_friction],
-                     model_tag, axs[2, :], t_vec, ax, ay, vx, vy, w, est_params=['sl_r', 'sc_r', 'fr', 'da'])
+        fit_and_plot(A1, A2, B, all_params[ref_friction], model_tag, axs[2, :], t_vec, ax, ay, est_params=[
+                     'sl_r', 'sc_r', 'fr', 'da'])
 
         ## fourth least square: same front and back coeffs + neglect driven wheel long. force
         # construct matrices
@@ -241,8 +240,8 @@ def least_square_test(param_dict, data):
         A2 = np.concatenate((np.zeros(alpha_f.shape),
                              alpha_r/m + alpha_f*np.cos(steering_angle)/m, np.zeros(alpha_f.shape), np.zeros(vx.shape)), axis=1)
         model_tag = "same front & back coeffs + neglect driven wheel long. force + aerodynamic drag"
-        fit_and_plot(A1, A2, B, all_params[ref_friction],
-                     model_tag, axs[3, :], t_vec, ax, ay, vx, vy, w, est_params=['sl_r', 'sc_r', 'fr', 'da'])
+        fit_and_plot(A1, A2, B, all_params[ref_friction], model_tag, axs[3, :], t_vec, ax, ay, est_params=[
+                     'sl_r', 'sc_r', 'fr', 'da'])
 
         """
         ### The third subset of figure do consider aerodynamic drag but instead use numerically differenced long & lat acceleration
@@ -270,8 +269,8 @@ def least_square_test(param_dict, data):
         A2 = np.concatenate((np.zeros(alpha_f.shape), sigma_xf*np.sin(steering_angle)/m,
                              alpha_r/m, alpha_f*np.cos(steering_angle)/m, np.zeros(alpha_f.shape), np.zeros(vx.shape)), axis=1)
         model_tag = "separate front & back coeffs + don't neglect driven wheel long. force + aerodynamic drag + use numerically differenced vx & vy as ax & ay"
-        fit_and_plot(A1, A2, B, all_params[ref_friction],
-                     model_tag, axs[0, :], t_vec, vxdot, vydot, vx, vy, w, est_params=['sl_r','sl_f', 'sc_r', 'sc_f', 'fr', 'da'])
+        fit_and_plot(A1, A2, B, all_params[ref_friction], model_tag, axs[0, :], t_vec, vxdot, vydot, est_params=[
+                     'sl_r', 'sl_f', 'sc_r', 'sc_f', 'fr', 'da'])
 
         ## second least square: separate front and back coeffs + neglect driven wheel long. force
         # construct matrices
@@ -280,8 +279,8 @@ def least_square_test(param_dict, data):
         A2 = np.concatenate((np.zeros(alpha_f.shape),
                              alpha_r/m, alpha_f*np.cos(steering_angle)/m, np.zeros(alpha_f.shape), np.zeros(vx.shape)), axis=1)
         model_tag = "separate front & back coeffs + neglect driven wheel long. force + aerodynamic drag + use numerically differenced vx & vy as ax & ay"
-        fit_and_plot(A1, A2, B, all_params[ref_friction],
-                     model_tag, axs[1, :], t_vec, vxdot, vydot, vx, vy, w, est_params=['sl_r', 'sc_r', 'sc_f', 'fr', 'da'])
+        fit_and_plot(A1, A2, B, all_params[ref_friction], model_tag, axs[1, :],
+                     t_vec, vxdot, vydot, est_params=['sl_r', 'sc_r', 'sc_f', 'fr', 'da'])
 
         ## third least square: same front and back coeffs + don't neglect driven wheel long. force
         # construct matrices
@@ -290,8 +289,8 @@ def least_square_test(param_dict, data):
         A2 = np.concatenate((sigma_xf*np.sin(steering_angle)/m,
                              alpha_r/m + alpha_f*np.cos(steering_angle)/m, np.zeros(alpha_f.shape), np.zeros(vx.shape)), axis=1)
         model_tag = "same front & back coeffs + don't neglect driven wheel long. force + aerodynamic drag + use numerically differenced vx & vy as ax & ay"
-        fit_and_plot(A1, A2, B, all_params[ref_friction],
-                     model_tag, axs[2, :], t_vec, vxdot, vydot, vx, vy, w, est_params=['sl_r', 'sc_r', 'fr', 'da'])
+        fit_and_plot(A1, A2, B, all_params[ref_friction], model_tag, axs[2, :],
+                     t_vec, vxdot, vydot, est_params=['sl_r', 'sc_r', 'fr', 'da'])
 
         ## fourth least square: same front and back coeffs + neglect driven wheel long. force
         # construct matrices
@@ -300,8 +299,8 @@ def least_square_test(param_dict, data):
         A2 = np.concatenate((np.zeros(alpha_f.shape),
                              alpha_r/m + alpha_f*np.cos(steering_angle)/m, np.zeros(alpha_f.shape), np.zeros(vx.shape)), axis=1)
         model_tag = "same front & back coeffs + neglect driven wheel long. force + aerodynamic drag + use numerically differenced vx & vy as ax & ay"
-        fit_and_plot(A1, A2, B, all_params[ref_friction],
-                     model_tag, axs[3, :], t_vec, vxdot, vydot, vx, vy, w, est_params=['sl_r', 'sc_r', 'fr', 'da'])
+        fit_and_plot(A1, A2, B, all_params[ref_friction], model_tag, axs[3, :],
+                     t_vec, vxdot, vydot, est_params=['sl_r', 'sc_r', 'fr', 'da'])
         """
 
         plt.show()
