@@ -348,7 +348,7 @@ def plot_stuff(dynamic_obj, data, est_states, configuration, num_row=1):
                  dynamic_obj.outputs[dynamic_obj.state_indices.index(dynamic_obj.state_dict['y']), :], label='output')
     else:
         plt.plot(data[configuration['data_state_mapping']['x']],
-                 data[configuration['data_state_mapping']['x']], label='data')
+                 data[configuration['data_state_mapping']['y']], label='data')
 
     plt.grid(True, "both")
     plt.xlabel('X (m)')
