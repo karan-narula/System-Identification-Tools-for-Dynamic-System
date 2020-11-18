@@ -309,7 +309,7 @@ def least_square_test(param_dict, data, threshold_ws=20.0):
     return all_params
 
 
-def plot_stuff(dynamic_obj, data, est_states, configuration, num_row=1):
+def plot_stuff(dynamic_obj, data, data_indices, est_states, configuration, num_row=1):
     """
     Useful function for plotting stuff. It plots 2 figures: 1 -> estimated parameters vs gt,
     2-> main dynamic states such as trajectory, heading, etc
@@ -365,8 +365,8 @@ def plot_stuff(dynamic_obj, data, est_states, configuration, num_row=1):
             plt.plot(dynamic_obj.T, dynamic_obj.outputs[dynamic_obj.state_indices.index(
                 state_ind), :], label='output')
         else:
-            plt.plot(
-                dynamic_obj.T, data[configuration['data_state_mapping'][key]], label='data')
+            plt.plot(dynamic_obj.T, np.array(data[configuration['data_state_mapping'][key]])[
+                     data_indices[0]:data_indices[1]+1, :], label='data')
 
         plt.grid(True, "both")
         plt.xlabel('Time (s)')
@@ -485,9 +485,28 @@ def create_dyn_obj(dyn_class, param_dict, **kwargs):
     return dynamic_obj
 
 
-def extract_model(data, dynamic_obj):
+def get_data_indices(data, threshold_ws):
+    # extract wheel speed
+    wheelspeed = np.array(data['wheelspeed'])
+    wr = 0.5*(wheelspeed[:, 2:3] + wheelspeed[:, 3:4])
+
+    first_index = 0
+    for i in range(len(wr)):
+        if wr[i, :] > threshold_ws:
+            first_index = i
+            break
+
+    for i in range(len(wr)-1, -1, -1):
+        if wr[i, :] > threshold_ws:
+            last_index = i
+            break
+
+    return (first_index, last_index)
+
+
+def extract_model(data, data_indices, dynamic_obj):
     # timing matrices
-    T = np.array(data['tvec']).flatten()
+    T = np.array(data['tvec'])[data_indices[0]:data_indices[1]+1, :].flatten()
     nt = len(T)
     dts = np.diff(T)
     dts = np.append(dts, dts[-1])
@@ -513,20 +532,23 @@ def extract_model(data, dynamic_obj):
     dynamic_obj.additional_args_om_list = additional_args_om_list
 
 
-def extract_input(data, dynamic_obj):
-    nt = len(data['tvec'])
+def extract_input(data, data_indices, dynamic_obj):
+    nt = data_indices[1] - data_indices[0] + 1
     U = np.zeros((dynamic_obj.num_in, nt))
 
     wheelspeed = np.array(data['wheelspeed']).T
     wheelangle = np.array(data['wheelangle']).T
-    U[0:1, :] = 0.5*(wheelspeed[0, :] + wheelspeed[1, :])
-    U[1:2, :] = 0.5*(wheelspeed[2, :] + wheelspeed[3, :])
-    U[2:3, :] = 0.5*(wheelangle[0, :] + wheelangle[1, :])
+    U[0:1, :] = 0.5*(wheelspeed[0, data_indices[0]:data_indices[1]+1] +
+                     wheelspeed[1, data_indices[0]:data_indices[1]+1])
+    U[1:2, :] = 0.5*(wheelspeed[2, data_indices[0]:data_indices[1]+1] +
+                     wheelspeed[3, data_indices[0]:data_indices[1]+1])
+    U[2:3, :] = 0.5*(wheelangle[0, data_indices[0]:data_indices[1]+1] +
+                     wheelangle[1, data_indices[0]:data_indices[1]+1])
 
     dynamic_obj.U = U
 
 
-def extract_output(data, data_filename, configuration, dynamic_obj):
+def extract_output(data, data_indices, data_filename, configuration, dynamic_obj):
     # check if mapping exists in the data file
     for key in configuration['output_data_keys']:
         assert key in data.keys(), "Key {} not present in data file {}".format(key, data_filename)
@@ -534,27 +556,28 @@ def extract_output(data, data_filename, configuration, dynamic_obj):
         assert key in data.keys(), "Key {} not present in data file {}".format(key, data_filename)
 
     # extract data
-    nt = len(data['tvec'])
-    if nt < 0:
-        return False
+    nt = data_indices[1] - data_indices[0] + 1
     num_out = dynamic_obj.num_out
     outputs = np.zeros((num_out, nt))
     index = 0
     for key in configuration['output_data_keys']:
-        outputs[index:index+1, :] = np.array(data[key]).T
+        outputs[index:index+1,
+                :] = np.array(data[key])[data_indices[0]:data_indices[1]+1, :].T
         index += 1
     for key in configuration['output_data_dot_keys']:
-        outputs[index:index+1, :] = np.array(data[key]).T
+        outputs[index:index+1,
+                :] = np.array(data[key])[data_indices[0]:data_indices[1]+1, :].T
         index += 1
     dynamic_obj.outputs = outputs
 
     return True
 
 
-def extract_initial_cond(data, configuration, dynamic_obj, first_file, continue_estimation):
+def extract_initial_cond(data, data_indices, configuration, dynamic_obj, first_file, continue_estimation):
     # put in the dynamic states
     for key, index in dynamic_obj.global_state_dict.items():
-        dynamic_obj.initial_cond[index] = data[configuration['data_state_mapping'][key]][0][0]
+        dynamic_obj.initial_cond[index] = data[configuration['data_state_mapping']
+                                               [key]][data_indices[0]][0]
 
     # reset the parameters if requested
     if not continue_estimation:
@@ -634,20 +657,24 @@ if __name__ == '__main__':
             param_dict, data, threshold_ws=configuration['threshold_ws'])
 
 
-        # create process and observation models
-        extract_model(data, dynamic_obj)
-
-        # extract input from data
-        extract_input(data, dynamic_obj)
-
-        # extract output from data
-        ok = extract_output(data, mat_file, configuration, dynamic_obj)
-        if not ok:
+        # get data filter based on wheel speed threshold
+        data_indices = get_data_indices(data, configuration['threshold_ws'])
+        if data_indices[1] - data_indices[0] + 1 < 0:
             continue
 
+        # create process and observation models
+        extract_model(data, data_indices, dynamic_obj)
+
+        # extract input from data
+        extract_input(data, data_indices, dynamic_obj)
+
+        # extract output from data
+        extract_output(data, data_indices, mat_file,
+                       configuration, dynamic_obj)
+
         # get initial condition from data
-        extract_initial_cond(data, configuration, dynamic_obj,
-                             first_file, continue_estimation)
+        extract_initial_cond(data, data_indices, configuration,
+                             dynamic_obj, first_file, continue_estimation)
 
         # perform filtering
         est_states, cov_states = create_filtered_estimates(
@@ -656,7 +683,8 @@ if __name__ == '__main__':
         dynamic_obj.initial_cond = est_states[:, -1:]
 
         # plot the evolution of states and parameters
-        plot_stuff(dynamic_obj, data, est_states, configuration, num_row=2)
+        plot_stuff(dynamic_obj, data, data_indices,
+                   est_states, configuration, num_row=2)
 
         if first_file:
             first_file = False
