@@ -79,8 +79,8 @@ def least_square_test(param_dict, data):
         all_params[ref_friction]['best']['mse'] = float('inf')
 
         # get front wheel speed, rear wheel speed and steering angle
-        wheelspeed = np.array(data['wheelspeed'])[friction == ref_friction, :]
-        wheelangle = np.array(data['wheelangle'])[friction == ref_friction, :]
+        wheelspeed = np.array(data['wheelspeed'])
+        wheelangle = np.array(data['wheelangle'])
         wf = 0.5*(wheelspeed[:, 0:1] + wheelspeed[:, 1:2])
         wr = 0.5*(wheelspeed[:, 2:3] + wheelspeed[:, 3:4])
         steering_angle = 0.5*(wheelangle[:, 0:1] + wheelangle[:, 1:2])
@@ -88,11 +88,11 @@ def least_square_test(param_dict, data):
         # use wheel speed to threshold data when the vehicle is moving
         threshold_ws = 20.0
         filter_condition = (np.abs(wr) > threshold_ws).flatten()
+        filter_condition = np.logical_and(
+            filter_condition, friction == ref_friction)
         wf = wf[filter_condition, :]
         wr = wr[filter_condition, :]
         steering_angle = steering_angle[filter_condition, :]
-        filter_condition = np.logical_and(
-            filter_condition, friction == ref_friction)
 
         # time vector
         t_vec = np.array(data['tvec'])[filter_condition, :]
