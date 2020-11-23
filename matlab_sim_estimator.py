@@ -6,6 +6,7 @@ import glob
 import math
 import numpy as np
 from scipy.io import loadmat
+from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
 
 from car_dynamics import RearDriveFrontSteerEst
@@ -49,6 +50,116 @@ def fit_and_plot(A1, A2, B, all_params, model_tag, axs, t_vec, ax, ay, est_param
     axs[1].set_ylabel('vy dot')
     axs[1].legend()
     axs[1].grid(True, "both")
+
+
+def bind_npi_pi(angles):
+    angles = np.fmod(angles + math.pi, 2*math.pi)
+    angles[angles < 0] += 2*math.pi
+    angles -= math.pi
+
+    return angles
+
+
+def forward_integrate_ode(init_state, axs, ays, ws, t_vec):
+    t_vec = t_vec[:, 0]
+    ws = ws[:, 0]
+    ws[1:] = ws[:-1]
+    axs = axs[:, 0]
+    axs[1:] = axs[:-1]
+    ays = ays[:, 0]
+    ays[1:] = ays[:-1]
+    def dyn_model(t, z):
+        # get current states
+        heading = z[2]
+        vx = z[3]
+        vy = z[4]
+
+        # get inputs via linear interpolation
+        w = np.interp(t, t_vec, ws)
+        ax = np.interp(t, t_vec, axs)
+        ay = np.interp(t, t_vec, ays)
+
+        # calculate derivative
+        x_dot = vx*math.cos(heading) - vy*math.sin(heading)
+        y_dot = vx*math.sin(heading) + vy*math.cos(heading)
+        theta_dot = w
+        vx_dot = ax + vy*w
+        vy_dot = ay - vx*w
+
+        dzdt = [x_dot, y_dot, theta_dot, vx_dot, vy_dot]
+
+        return dzdt
+
+    # use ODE solver to integrate the model
+    solver_states = solve_ivp(dyn_model, [
+                              t_vec[0], t_vec[-1]], init_state, method='RK45', t_eval=t_vec)
+    solver_states.y[2, :] = bind_npi_pi(solver_states.y[2, :])
+
+    return solver_states
+
+
+def forward_integrate_kinematic(init_state, axs, ays, ws, t_vec):
+    states = np.zeros((5, len(t_vec)))
+    states[:, 0] = init_state
+
+    dts = np.diff(t_vec, axis=0)
+
+    # first order Euler forward integration
+    for j in range(1, len(t_vec)):
+        # get previous states
+        heading = states[2, j-1]
+        vx = states[3, j-1]
+        vy = states[4, j-1]
+
+        # get previous inputs
+        w = ws[j-1, 0]
+        ax = axs[j-1, 0]
+        ay = ays[j-1, 0]
+        dt = dts[j-1, 0]
+
+        x_dot = vx*math.cos(heading) - vy*math.sin(heading)
+        y_dot = vx*math.sin(heading) + vy*math.cos(heading)
+        theta_dot = w
+        vx_dot = ax + vy*w
+        vy_dot = ay - vx*w
+
+        states[:, j] = states[:, j-1] + dt * \
+            np.array([x_dot, y_dot, theta_dot, vx_dot, vy_dot])
+
+    states[2, :] = bind_npi_pi(states[2, :])
+
+    return states
+
+
+def plot_states_evol(states, solver_states, x, y, yaw, vx, vy, t_vec):
+    fig, axs = plt.subplots(2, 2, constrained_layout=True, num=0)
+    # plot the states
+    xaxis_gts = [x, t_vec, t_vec, t_vec]
+    xaxis_integrates = [states[0, :], t_vec, t_vec, t_vec]
+    xaxis_solver_integrates = [solver_states[0, :], t_vec, t_vec, t_vec]
+    xlabels = ['X (m)', 'Time (s)', 'Time (s)', 'Time (s)']
+    yaxis_gts = [y, yaw, vx, vy]
+    yaxis_integrates = [states[1, :], states[2, :], states[3, :], states[4, :]]
+    yaxis_solver_integrates = [
+        solver_states[1, :], solver_states[2, :], solver_states[3, :], solver_states[4, :]]
+    ylabels = ['Y (m)', 'Heading (rad)', 'Vx (m/s)', 'Vy (m/s)']
+    i = 0
+    j = 0
+
+    for xaxis_gt, xaxis_integrate, xaxis_solver_integrate, xlabel, yaxis_gt, yaxis_integrate, yaxis_solver_integrate, ylabel in zip(xaxis_gts, xaxis_integrates, xaxis_solver_integrates, xlabels, yaxis_gts, yaxis_integrates, yaxis_solver_integrates, ylabels):
+        axs[i, j].plot(xaxis_gt, yaxis_gt, label='gt')
+        axs[i, j].plot(xaxis_integrate, yaxis_integrate, label='integrate')
+        axs[i, j].plot(xaxis_solver_integrate,
+                       yaxis_solver_integrate, label='RK45 integrate')
+        axs[i, j].set_xlabel(xlabel)
+        axs[i, j].set_ylabel(ylabel)
+        axs[i, j].grid(True, "both")
+        axs[i, j].legend()
+
+        j += 1
+        if j >= 2:
+            i += 1
+            j = 0
 
 
 def least_square_test(param_dict, data, threshold_ws=20.0):
@@ -110,7 +221,18 @@ def least_square_test(param_dict, data, threshold_ws=20.0):
         ax = np.array(data['ax'])[filter_condition, :]
         ay = np.array(data['ay'])[filter_condition, :]
 
-        # compose a least square problem in cr, cf, dr, df and fr
+        # get kinematic states
+        x = np.array(data['x'])[filter_condition, :]
+        y = np.array(data['y'])[filter_condition, :]
+        yaw = np.array(data['heading'])[filter_condition, :]
+
+        # forward integrate the model with yaw rate and inertial acceleration as inputs
+        init_state = [x[0, 0], y[0, 0], yaw[0, 0], vx[0, 0], vy[0, 0]]
+        states = forward_integrate_kinematic(init_state, ax, ay, w, t_vec)
+        solver_states = forward_integrate_ode(init_state, ax.copy(), ay.copy(), w.copy(), t_vec.copy())
+        plot_states_evol(states, solver_states.y, x, y, yaw, vx, vy, t_vec)
+
+        #compose a least square problem in cr, cf, dr, df and fr
         sigma_xf = ref*wf - vx
         sigma_xf[sigma_xf < 0.0] /= vx[sigma_xf < 0.0]
         sigma_xf[sigma_xf > 0.0] /= ref*wf[sigma_xf > 0.0]
