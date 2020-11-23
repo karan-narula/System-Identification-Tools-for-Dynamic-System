@@ -961,6 +961,28 @@ class RearDriveFrontSteer(AbstractDyn):
 
         return np.array([[x_dot, y_dot, theta_dot, vx_dot, vy_dot, w_dot]])
 
+    def output_model(self, state, u, param_dict):
+        """
+        Simulate the output of the system similar to the base class but with a special treatment for acceleration outputs.
+
+        Args:
+            state (numpy array [n x 1]): current state vector
+            u (*): current input
+            param_dict (dict): dictionary of current parameters needed for defining the dynamics
+
+        Returns:
+            output (numpy array [len(self.state_indices) + len(state_dot_indices) x 1]): observed state and
+                state derivatives of the system
+
+        """
+        state_dot = self.dxdt(state, u, param_dict)
+        state_dot[0, self.state_dict['vx']
+                  ] -= state[self.state_dict['vy']]*state[self.state_dict['w']]
+        state_dot[0, self.state_dict['vy']
+                  ] += state[self.state_dict['vx']]*state[self.state_dict['w']]
+
+        return np.concatenate((state[self.state_indices], state_dot[0, self.state_dot_indices]))
+
 
 class RearDriveFrontSteerEst(RearDriveFrontSteer):
     """
