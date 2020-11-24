@@ -280,7 +280,8 @@ class FrontSteered(AbstractDyn):
 
     """
     # state dictionary for this model
-    global_state_dict = {'x': 0, 'y': 1, 'theta': 2, 'vx': 3, 'vy': 4, 'omega': 5}
+    global_state_dict = {'x': 0, 'y': 1,
+                         'theta': 2, 'vx': 3, 'vy': 4, 'omega': 5}
 
     def __init__(self, param_dict, state_keys, state_dot_keys=[], acc_output=False):
         # expected parameter keys

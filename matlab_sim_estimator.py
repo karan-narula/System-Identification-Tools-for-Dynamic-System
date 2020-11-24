@@ -17,7 +17,8 @@ def fit_and_plot(A1, A2, B, all_params, model_tag, axs, t_vec, ax, ay, est_param
     A = np.concatenate((A1, A2), axis=0)
     # perform least square
     parameters, residuals, _, _ = np.linalg.lstsq(A, B, rcond=None)
-    assert len(parameters) == len(est_params), "Key for parameters should be of the same length as matrices"
+    assert len(parameters) == len(
+        est_params), "Key for parameters should be of the same length as matrices"
 
     # calculate mse from this set of parameters
     mse = ((np.matmul(A, parameters) - B)**2).mean()
@@ -68,6 +69,7 @@ def forward_integrate_ode(init_state, axs, ays, ws, t_vec):
     axs[1:] = axs[:-1]
     ays = ays[:, 0]
     ays[1:] = ays[:-1]
+
     def dyn_model(t, z):
         # get current states
         heading = z[2]
@@ -229,7 +231,8 @@ def least_square_test(param_dict, data, threshold_ws=20.0):
         # forward integrate the model with yaw rate and inertial acceleration as inputs
         init_state = [x[0, 0], y[0, 0], yaw[0, 0], vx[0, 0], vy[0, 0]]
         states = forward_integrate_kinematic(init_state, ax, ay, w, t_vec)
-        solver_states = forward_integrate_ode(init_state, ax.copy(), ay.copy(), w.copy(), t_vec.copy())
+        solver_states = forward_integrate_ode(
+            init_state, ax.copy(), ay.copy(), w.copy(), t_vec.copy())
         plot_states_evol(states, solver_states.y, x, y, yaw, vx, vy, t_vec)
 
         #compose a least square problem in cr, cf, dr, df and fr
