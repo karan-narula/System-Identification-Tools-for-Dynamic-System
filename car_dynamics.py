@@ -1031,6 +1031,217 @@ class RearDriveFrontSteerEst(RearDriveFrontSteer):
         return partial_dxdt(self, RearDriveFrontSteerEst, state, u, param_dict)
 
 
+class RearDriveFrontSteerSubStateVel(AbstractDyn):
+    """
+    Class with the same dynamics & parameters as RearDriveFrontSteer but considers only subset of states
+    model from: Modeling discussion presentation
+    inputs = [front wheel speed, rear wheel speed, front wheel angle (steering angle), yaw rate]
+    states = [vx, vy, ax, ay]
+
+    Args:
+        param_dict (dict): dictionary of parameters needed for defining the dynamics
+        state_keys (list): list of states string that are observed by sensor
+        state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
+        expected_keys (list): list of parameters string that are expected to be present in the param_dict; defaults to None
+            when None is specified, the parameters are assumed to be the ones listed above.
+
+    """
+    # state dictionary for this model
+    global_state_dict = {'vx': 0, 'vy': 1, 'ax': 2, 'ay': 3}
+
+    def __init__(self, param_dict, state_keys, state_dot_keys=[], expected_keys=None):
+        # expected parameter keys
+        if expected_keys is None:
+            expected_keys = ["m", "iz", "lf", "lr", "ref", "rer", "fr",
+                             "g", "sc_f", "sc_r", "sl_f", "sl_r", "da"]
+        super(RearDriveFrontSteerSubStateVel, self).__init__(
+            param_dict, expected_keys=expected_keys, state_keys=state_keys, state_dot_keys=state_dot_keys)
+        # specify expected dimensionality of input
+        self.num_in = 4
+
+    def dxdt(self, state, u, param_dict):
+        """
+        Obtain derivative of the state based on current state and input
+
+        Args:
+            state (numpy array [2 x 1]): current state of the system consisting of vx and vy
+            u (numpy array [4 x 1]): current input consisting of front wheel speed, rear wheel speed, steering angle and yaw rate
+            param_dict (dict): dictionary of current parameters needed for defining the dynamics
+
+        Returns:
+            state_dot (numpy array [2 x 1]): derivative of the states
+
+        """
+        # get the parameters
+        m = param_dict["m"]
+        iz = param_dict["iz"]
+        lf = param_dict["lf"]
+        lr = param_dict["lr"]
+        ref = param_dict["ref"]
+        rer = param_dict["rer"]
+        fr = param_dict["fr"]
+        g = param_dict["g"]
+        sc_r = param_dict["sc_r"]
+        sc_f = param_dict["sc_f"]
+        sl_r = param_dict["sl_r"]
+        sl_f = param_dict["sl_f"]
+        da = param_dict["da"]
+
+        # get the inputs
+        wf = u[0]
+        wr = u[1]
+        steering_angle = u[2]
+        w = u[3]
+
+        # get the states
+        vx = state[self.state_dict['vx']]
+        vy = state[self.state_dict['vy']]
+
+        # compute aero dynamic force
+        f_aero = da*(vx**2)
+
+        # calculate longitudinal slip ratio
+        sigma_xf = ref*wf - vx
+        if sigma_xf < 0.0:
+           # braking phase
+           if vx != 0.0:
+                sigma_xf /= vx
+           else:
+                sigma_xf = 0.0
+                print("vx = 0 detected")
+        else:
+            # acceleration phase
+            if wf != 0.0:
+                sigma_xf /= (ref*wf)
+            else:
+                sigma_xf = 0.0
+                print("wf = 0 detected")
+
+        sigma_xr = rer*wr - vx
+        if sigma_xr < 0.0:
+           # braking phase
+           if vx != 0.0:
+                sigma_xr /= vx
+           else:
+                sigma_xr = 0.0
+        else:
+            # acceleration phase
+            if wr != 0.0:
+                sigma_xr /= (rer*wr)
+            else:
+                sigma_xr = 0.0
+                print("wr = 0 detected")
+
+        # calculate logitudinal tire forces
+        fxf = sl_f*sigma_xf
+        fxr = sl_r*sigma_xr
+
+        # calculate rolling resistance
+        rx = fr*m*g
+
+        # calculate slip angle
+        if vx == 0.0:
+            if vy + lf*w == 0.0:
+                theta_vf = 0.0
+                print("vy + lf*w = 0 detected")
+            else:
+                theta_vf = 0.5*math.pi
+            if vy - lr*w == 0.0:
+                theta_vr = 0.0
+                print("vy - lr*w = 0 detected")
+            else:
+                theta_vr = 0.5*math.pi
+        else:
+            theta_vf = (vy + lf*w)/vx
+            theta_vr = (vy - lr*w)/vx
+        alpha_f = steering_angle - theta_vf
+        alpha_r = -theta_vr
+
+        # calculate lateral tire force
+        fyf = sc_f*alpha_f
+        fyr = sc_r*alpha_r
+
+        # calculate the state derivatives
+        ax = (fxr + fxf*math.cos(steering_angle) - fyf *
+              math.sin(steering_angle) - rx - f_aero)/m
+        vx_dot = ax + vy*w
+        ay = (fyr + fyf*math.cos(steering_angle) +
+              fxf*math.sin(steering_angle))/m
+        vy_dot = ay - vx*w
+
+        return np.array([[vx_dot, vy_dot, ax, ay]])
+
+    def forward_prop(self, state, state_dot, dt):
+        """
+        Forward propagation of model via first order Euler approximation, i.e. X[k+1] = X[k] + dt*X'[k], where X' is the derivative
+        for some states while the rest are retrieved from dxdt function directly.
+
+        Args:
+            state (numpy array [n x 1 or 1 x n]): current state vector
+            state_dot (numpy array [n x 1 or 1 x n]): current derivative of the state
+            dt (float): time step/difference between discrete step k and step k+1
+
+        Returns:
+            state (numpy array [n x 1 or 1 x n]): next time-step state vector
+
+        """
+        next_state = state[:]
+        for key in self.state_dict:
+            if key != 'ax' and key != 'ay':
+                next_state[self.state_dict[key]] += dt * \
+                    state_dot[0, self.state_dict[key]]
+            else:
+                next_state[self.state_dict[key]] = state_dot[0, self.state_dict[key]]
+
+        return next_state
+
+
+class RearDriveFrontSteerSubStateVelEst(RearDriveFrontSteerSubStateVel):
+    """
+    Class derived from RearDriveFrontSteerSubStateVel class
+    model from: same as RearDriveFrontSteer but some parameters are the states themselves to be estimated online
+    inputs = [linear acceleration, steering angle]
+    states = [vx, vy, ...]
+
+    Args:
+        param_dict (dict): dictionary of parameters needed for defining the dynamics
+        est_params (list): list of parameter strings to be estimated with the states
+        state_keys (list): list of states string that are observed by sensor
+        state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
+        simulate_gt (bool): specify whether model is during the stage of simulating ground truth
+
+    """
+
+    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False):
+        expected_keys = ["m", "iz", "lf", "lr", "ref", "rer", "fr",
+                         "g", "sc_f", "sc_r", "sl_f", "sl_r", "da"]
+
+        partial_init(self, RearDriveFrontSteerSubStateVelEst, expected_keys,
+                     est_params, param_dict, state_keys, state_dot_keys, simulate_gt)
+
+    def re_initialise(self):
+        """
+        re-initialise after ground truth data has been generated using its parent's derivative and raw possibly time-varying parameters
+        """
+        re_initialise(self)
+
+    def dxdt(self, state, u, param_dict):
+        """
+        Obtain derivative of the state based on current state and input similar to RoverDyn. Derivatives of
+        estimated parameters are zero, i.e. assuming they are constant and not drifting over time.
+
+        Args:
+            state (numpy array [2+len(self.est_params) x 1]): current state of the system consisting of vx, vy and estimated parameters
+            u (numpy array [4 x 1]): current input consisting of front wheel speed, rear wheel speed, steering angle and yaw rate
+            param_dict (dict): dictionary of current non-estimated parameters needed for defining the dynamics
+
+        Returns:
+            state_dot (numpy array [6+len(self.est_params) x 1]): derivative of the states
+
+        """
+        return partial_dxdt(self, RearDriveFrontSteerSubStateVelEst, state, u, param_dict)
+
+
 def sample_linear(T, cruise_time, *args):
     """
     Create an example input vector for the dynamic model in which each phsical entity is linearly increased to the
