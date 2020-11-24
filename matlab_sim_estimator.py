@@ -9,7 +9,7 @@ from scipy.io import loadmat
 from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
 
-from car_dynamics import RearDriveFrontSteerEst
+from car_dynamics import RearDriveFrontSteerEst, RearDriveFrontSteerSubStateVelEst
 from test_estimators import create_filtered_estimates
 
 
@@ -667,12 +667,14 @@ def extract_input(data, data_indices, dynamic_obj):
 
     wheelspeed = np.array(data['wheelspeed']).T
     wheelangle = np.array(data['wheelangle']).T
+    w = np.array(data['yawrate']).T
     U[0:1, :] = 0.5*(wheelspeed[0, data_indices[0]:data_indices[1]+1] +
                      wheelspeed[1, data_indices[0]:data_indices[1]+1])
     U[1:2, :] = 0.5*(wheelspeed[2, data_indices[0]:data_indices[1]+1] +
                      wheelspeed[3, data_indices[0]:data_indices[1]+1])
     U[2:3, :] = 0.5*(wheelangle[0, data_indices[0]:data_indices[1]+1] +
                      wheelangle[1, data_indices[0]:data_indices[1]+1])
+    U[3:4, :] = w[0, data_indices[0]:data_indices[1]+1]
 
     dynamic_obj.U = U
 
@@ -690,8 +692,12 @@ def extract_output(data, data_indices, data_filename, configuration, dynamic_obj
     outputs = np.zeros((num_out, nt))
     index = 0
     for key in configuration['output_data_keys']:
-        outputs[index:index+1,
-                :] = np.array(data[key])[data_indices[0]:data_indices[1]+1, :].T
+        if key == 'ax' or key == 'ay':
+            outputs[index:index+1,
+                    :] = np.array(data[key])[data_indices[0]-1:data_indices[1], :].T
+        else:
+            outputs[index:index+1,
+                    :] = np.array(data[key])[data_indices[0]:data_indices[1]+1, :].T
         index += 1
     for key in configuration['output_data_dot_keys']:
         outputs[index:index+1,
@@ -750,31 +756,41 @@ if __name__ == '__main__':
         data['lr'])), ('ref', 0.5*(float(radii[0])+float(radii[1]))), ('rer', 0.5*(float(radii[2])+float(radii[3]))), ('g', 9.81), ('rho', 1.225), ('af', 1.6 + 0.00056*(float(data['m']) - 765.0)), ('sl_f', 0.0)])
 
     # configuration for testing the estimator + create dynamic object
-    configuration = {'output_keys': ['x', 'y'],
-                     'output_data_keys': ['x', 'y'],
-                     'output_dot_keys': ['vx', 'vy'],
-                     'output_data_dot_keys': ['ax', 'ay'],
-                     'est_params': ['fr', 'sl_r', 'sc_f', 'sc_r', 'cd'],
-                     'init_params': [0.0, 1e3, 1e3, 1e3, 3.0],
-                     'init_param_cov': 1000.0,
+    configuration = {'output_keys': ['vx', 'vy', 'ax', 'ay'],
+                     'output_data_keys': ['vx', 'vy', 'ax', 'ay'],
+                     'output_dot_keys': [],
+                     'output_data_dot_keys': [],
+                     'est_params': ['fr', 'sl_r', 'sc_f', 'sc_r', 'da'],
+                     'init_params': [0.0, 0.0, 0.0, 0.0, 0.0],
+                     'init_param_cov': [1e3, 1e3, 1e3, 1e3, 1e3],
+                     'std_x': 0.05,
+                     'std_y': 0.05,
+                     'std_theta': 0.5*math.pi/180.0,
+                     'std_vx': 1e-2,
+                     'std_vy': 1e-2,
+                     'std_ax': 1e-2,
+                     'std_ay': 1e-2,
+                     'std_w': 0.25*math.pi/180.0,
                      'std_x_out': 0.1,
                      'std_y_out': 0.1,
                      'std_theta_out': math.pi/180.0,
-                     'std_vx_out': 0.1,
-                     'std_vy_out': 0.1,
-                     'std_vx_dot_out': 0.15,
-                     'std_vy_dot_out': 0.15,
+                     'std_vx_out': 0.05,
+                     'std_vy_out': 0.05,
+                     'std_ax_out': 0.05,
+                     'std_ay_out': 0.05,
+                     'std_vx_dot_out': 0.05,
+                     'std_vy_dot_out': 0.05,
                      'std_theta_dot_out': math.pi/180.0,
                      'time_varying_q': 0.0,
                      'threshold_ws': 20.0}
     configuration['data_state_mapping'] = {
-        'x': 'x', 'y': 'y', 'theta': 'heading', 'vx': 'vx', 'vy': 'vy', 'w': 'yawrate'}
+        'x': 'x', 'y': 'y', 'theta': 'heading', 'vx': 'vx', 'vy': 'vy', 'w': 'yawrate', 'ax': 'ax', 'ay':'ay'}
     dynamic_obj = create_dyn_obj(
-        RearDriveFrontSteerEst, param_dict, **configuration)
+        RearDriveFrontSteerSubStateVelEst, param_dict, **configuration)
 
     first_file = True
     # expect to restart from previous cycle (previous mat file?)
-    continue_estimation = True
+    continue_estimation = False
 
     # load the data from matlab file
     for mat_file in mat_files:
