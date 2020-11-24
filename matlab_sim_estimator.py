@@ -465,26 +465,30 @@ def plot_stuff(dynamic_obj, data, data_indices, est_states, configuration, num_r
     # second figure is to examine the main states
     plt.figure(2)
     num_col = int(math.ceil((num_main_states-1)/2.0))
-    plt.subplot(2, num_col, 1)
-    plt.plot(est_states[dynamic_obj.state_dict['x'], :],
-             est_states[dynamic_obj.state_dict['y'], :], label='est')
-    if dynamic_obj.state_dict['x'] in dynamic_obj.state_indices and dynamic_obj.state_dict['y'] in dynamic_obj.state_indices:
-        plt.plot(dynamic_obj.outputs[dynamic_obj.state_indices.index(dynamic_obj.state_dict['x']), :],
-                 dynamic_obj.outputs[dynamic_obj.state_indices.index(dynamic_obj.state_dict['y']), :], label='output')
-    else:
-        plt.plot(data[configuration['data_state_mapping']['x']],
-                 data[configuration['data_state_mapping']['y']], label='data')
+    start_ind = 1
+    if 'x' in dynamic_obj.state_dict and 'y' in dynamic_obj.state_dict:
+        plt.subplot(2, num_col, 1)
+        plt.plot(est_states[dynamic_obj.state_dict['x'], :],
+                 est_states[dynamic_obj.state_dict['y'], :], label='est')
+        if dynamic_obj.state_dict['x'] in dynamic_obj.state_indices and dynamic_obj.state_dict['y'] in dynamic_obj.state_indices:
+            plt.plot(dynamic_obj.outputs[dynamic_obj.state_indices.index(dynamic_obj.state_dict['x']), :],
+                     dynamic_obj.outputs[dynamic_obj.state_indices.index(dynamic_obj.state_dict['y']), :], label='output')
+        else:
+            plt.plot(data[configuration['data_state_mapping']['x']],
+                     data[configuration['data_state_mapping']['y']], label='data')
 
-    plt.grid(True, "both")
-    plt.xlabel('X (m)')
-    plt.ylabel('Y (m)')
-    plt.legend()
+        plt.grid(True, "both")
+        plt.xlabel('X (m)')
+        plt.ylabel('Y (m)')
+        plt.legend()
+
+        start_ind += 2
 
     other_states_dict = {x: dynamic_obj.state_dict[x]
                          for x in dynamic_obj.state_dict if x not in ['x', 'y'] and x not in dynamic_obj.est_params}
     for i, key in enumerate(other_states_dict):
         state_ind = other_states_dict[key]
-        plt.subplot(2, num_col, i+2)
+        plt.subplot(2, num_col, start_ind+i)
         plt.plot(dynamic_obj.T, est_states[state_ind, :], label='est')
         if state_ind in dynamic_obj.state_indices:
             plt.plot(dynamic_obj.T, dynamic_obj.outputs[dynamic_obj.state_indices.index(
