@@ -762,7 +762,7 @@ if __name__ == '__main__':
                      'output_data_dot_keys': [],
                      'est_params': ['fr', 'sl_r', 'sc_f', 'sc_r', 'da'],
                      'init_params': [0.0, 0.0, 0.0, 0.0, 0.0],
-                     'init_param_cov': [1e3, 1e3, 1e3, 1e3, 1e3],
+                     'init_param_cov': [1e1, 1e1, 1e1, 1e1, 1e1],
                      'std_x': 0.05,
                      'std_y': 0.05,
                      'std_theta': 0.5*math.pi/180.0,
@@ -801,6 +801,15 @@ if __name__ == '__main__':
         lls_params = least_square_test(
             param_dict, data, threshold_ws=configuration['threshold_ws'])
 
+        # Use initial condition of parameters based on LLS (for debugging purposes) to check dynamic model
+        first_friction = data['friction'][0][0]
+        for i, key in enumerate(configuration['est_params']):
+            if key != 'cd':
+                configuration['init_params'][i] = lls_params[first_friction]['best']['param'][key]
+            else:
+                configuration['init_params'][i] = 2*lls_params[first_friction]['best']['param']['da']/(
+                    param_dict['rho']*param_dict['af'])
+            param_dict[key] = configuration['init_params'][i]
 
         # get data filter based on wheel speed threshold
         data_indices = get_data_indices(data, configuration['threshold_ws'])
