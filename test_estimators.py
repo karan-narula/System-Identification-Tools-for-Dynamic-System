@@ -9,6 +9,14 @@ from car_dynamics import sample_linear, FrontSteered, RoverPartialDynEst, FrontD
 from estimators import kinematic_state_observer, PointBasedFilter, fit_data_rover, fit_data_rover_dynobj
 
 
+def bind_npi_pi(angles):
+    angles = np.fmod(angles + math.pi, 2*math.pi)
+    angles[angles < 0] += 2*math.pi
+    angles -= math.pi
+
+    return angles
+
+
 def plot_stuff(dynamic_obj, est_states, num_row=1):
     """
     Useful function for plotting stuff. It plots 2 figures: 1 -> estimated parameters vs gt,
@@ -85,6 +93,7 @@ def simulate_data(dyn_class, param_dict, U, T, **kwargs):
         kwargs: dictionary of variable length for additional parameters
 
     kwargs:
+        angle_states (list): list of heading state keys to be collated with binding function and stored in dynamic object
         seed (int): seed for the random generator for repeatability of the tests; defaults to 0
         std_* (float): standard deviation for additive noise for evolution model of state *; * must be a key in the
             state_dict of dyn_class; defaults to 0.0 when not given for a state in state_dict of dyn_class
@@ -199,6 +208,20 @@ def simulate_data(dyn_class, param_dict, U, T, **kwargs):
                             overwrite_keys=overwrite_keys, overwrite_vals=overwrite_vals)
     dynamic_obj.re_initialise()
 
+    # create innovation bound function mapping for heading states
+    innovation_bound_func = {}
+    angle_states = kwargs.get('angle_states', [])
+    if not isinstance(angle_states, Iterable):
+        angle_states = [angle_states]
+    for angle_state in angle_states:
+        assert angle_state in state_dict, "Specified angle state not in state dictionary"
+        innovation_bound_func[dynamic_obj.state_indices.index(
+            state_dict[angle_state])] = bind_npi_pi
+        innovation_bound_func[len(dynamic_obj.state_indices) +
+                              dynamic_obj.state_dot_indices.index(state_dict[angle_state])] = bind_npi_pi
+
+    dynamic_obj.innovation_bound_func = innovation_bound_func
+
     return dynamic_obj
 
 
@@ -221,6 +244,11 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2):
     # create instance of the filter
     pbgf = PointBasedFilter(method, order)
 
+    if hasattr(dynamic_obj, 'innovation_bound_func'):
+        innovation_bound_func = dynamic_obj.innovation_bound_func
+    else:
+        innovation_bound_func = {}
+
     # filtering loop
     num_sol = len(dynamic_obj.T)
     est_states = np.zeros((dynamic_obj.num_states, num_sol))
@@ -229,8 +257,8 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2):
         (dynamic_obj.num_states, dynamic_obj.num_states, num_sol))
     cov_states[:, :, 0] = dynamic_obj.P0.copy()
     for i in range(1, num_sol):
-        est_states[:, i:i+1], cov_states[:, :, i] = pbgf.predict_and_or_update(est_states[:, i-1:i], cov_states[:, :, i-1], dynamic_obj.process_model, dynamic_obj.observation_model, dynamic_obj.Q, dynamic_obj.R,
-                                                                               dynamic_obj.U[:, i-1], dynamic_obj.outputs[:, i:i+1], additional_args_pm=[sub[i-1] for sub in dynamic_obj.additional_args_pm_list], additional_args_om=[sub[i] for sub in dynamic_obj.additional_args_om_list])
+        est_states[:, i:i+1], cov_states[:, :, i] = pbgf.predict_and_or_update(est_states[:, i-1:i], cov_states[:, :, i-1], dynamic_obj.process_model, dynamic_obj.observation_model, dynamic_obj.Q, dynamic_obj.R, dynamic_obj.U[:, i-1], dynamic_obj.outputs[:, i:i+1], additional_args_pm=[
+                                                                               sub[i-1] for sub in dynamic_obj.additional_args_pm_list], additional_args_om=[sub[i] for sub in dynamic_obj.additional_args_om_list], innovation_bound_func=innovation_bound_func)
 
     return est_states, cov_states
 
