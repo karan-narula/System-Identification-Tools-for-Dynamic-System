@@ -91,7 +91,7 @@ class PointBasedFilter(object):
         self.method = method
         self.order = order
 
-    def predict_and_or_update(self, X, P, f, h, Q, R, u, y, additional_args_pm=[], additional_args_om=[], predict_flag=True):
+    def predict_and_or_update(self, X, P, f, h, Q, R, u, y, additional_args_pm=[], additional_args_om=[], innovation_bound_func={}, predict_flag=True):
         """
         Perform one iteration of prediction and/or update.
         algorithm reference: Algorithm 5.1, page 104 of "Compressed Estimation in Coupled High-dimensional Processes"
@@ -107,6 +107,8 @@ class PointBasedFilter(object):
             y (numpy array [nu x 1]): current measurement/output of the system
             additional_args_pm (list): list of additional arguments to be passed to the process model during the prediction step
             additional_args_om (list): list of additional arguments to be passed to the observation model during the update step
+            innovation_bound_func (dict): dictionary with innovation index as keys and callable function as value to bound
+                innovation when needed
             predict_flag (bool): perform prediction? defaults to true
 
         Returns:
@@ -142,6 +144,11 @@ class PointBasedFilter(object):
 
         # update step (step 6 of algorithm 5.1) by implementing equations 5.36-5.41 (page 106)
         if len(y):
+            # check if innovation keys is valid
+            for key in innovation_bound_func:
+                assert key in range(len(y)), "Key of innovation bound function dictionary should be within the length of the output"
+                assert callable(innovation_bound_func[key]), "Innovation bound function is not callable"
+
             ip = np.arange(n+nq, n+nq+nr)
             Z, _, Pz, z2 = self.unscented_transformH(
                 x, W, WeightMat, L, h, u, ia, ip, len(y), additional_args_om)
@@ -150,6 +157,9 @@ class PointBasedFilter(object):
             # Kalman gain
             K = np.matmul(Pxy, np.linalg.inv(Pz))
             # state update (equation 5.40)
+            innovation = y - Z
+            for key in innovation_bound_func:
+                innovation[key,:] = innovation_bound_func[key](innovation[key,:])
             X += np.matmul(K, y - Z)
             # covariance update (equation 5.41)
             P -= np.matmul(K, Pxy.T)
