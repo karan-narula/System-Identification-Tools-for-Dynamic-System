@@ -226,10 +226,12 @@ def simulate_data(dyn_class, param_dict, U, T, **kwargs):
         angle_states = [angle_states]
     for angle_state in angle_states:
         assert angle_state in state_dict, "Specified angle state not in state dictionary"
-        innovation_bound_func[dynamic_obj.state_indices.index(
-            state_dict[angle_state])] = bind_npi_pi
-        innovation_bound_func[len(dynamic_obj.state_indices) +
-                              dynamic_obj.state_dot_indices.index(state_dict[angle_state])] = bind_npi_pi
+        if state_dict[angle_state] in dynamic_obj.state_indices:
+            innovation_bound_func[dynamic_obj.state_indices.index(
+                state_dict[angle_state])] = bind_npi_pi
+        if state_dict[angle_state] in dynamic_obj.state_dot_indices:
+            innovation_bound_func[len(
+                dynamic_obj.state_indices) + dynamic_obj.state_dot_indices.index(state_dict[angle_state])] = bind_npi_pi
 
     dynamic_obj.innovation_bound_func = innovation_bound_func
 
