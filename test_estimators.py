@@ -235,6 +235,18 @@ def simulate_data(dyn_class, param_dict, U, T, **kwargs):
 
     dynamic_obj.innovation_bound_func = innovation_bound_func
 
+    # randomly add or substract even number of pi to angle outputs
+    pis_factor_list = [i for i in range(10) if i % 2 == 0]
+    original_outputs = dynamic_obj.outputs.copy()
+    for i in range(dynamic_obj.outputs.shape[1]):
+        index_to_mod = np.random.choice(
+            list(dynamic_obj.innovation_bound_func.keys()))
+        add_or_subtract = np.random.choice([0, 1])
+        number_of_pis = np.random.choice(pis_factor_list)
+        original_value = dynamic_obj.outputs[index_to_mod, i]
+        dynamic_obj.outputs[index_to_mod,
+                            i] += ((-1)**add_or_subtract)*number_of_pis*math.pi
+
     return dynamic_obj
 
 
