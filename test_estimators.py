@@ -466,18 +466,20 @@ if __name__ == '__main__':
               max_inputs_list, **configuration)
 
     # test pbgf for FrontDriveFrontSteer with sudden change in fr
-    param_dict = ODict([('fx', 15), ('cf', 0.75), ('cr', 0.75), ('lf', 0.8),
+    param_dict = ODict([('fx', 15), ('cf', 0.75), ('cr', [0.75, 1.0]), ('lf', 0.8),
                         ('lr', 1.75), ('m', 1000.0), ('iz', 100.0), ('rc', 0.0), ('fr', [1.0, 2.0]), ('g', 9.8)])
     configuration = {}
     configuration = {'seed': 0,
-                     'output_keys': ['x', 'y', 'theta'],
-                     'est_params': ['fr'],
+                     'output_keys': ['theta', 'x'],
+                     'output_dot_keys': ['theta'],
+                     'est_params': ['fr', 'cr'],
                      'init_param_cov': 10,
-                     'std_x_out': 0.10,
-                     'std_y_out': 0.10,
+                     'std_x_out': 0.1,
+                     'std_y_out': 0.1,
                      'std_theta_out': math.pi/180.0,
                      'std_theta_dot_out': math.pi/180.0,
-                     'time_varying_q': 1e-4}
+                     'time_varying_q': 1e-4,
+                     'angle_states': ['theta', 'w']}
     max_a = 20.0
     max_steering = 30.0*math.pi/180.0
     max_inputs_list = [max_a, max_steering]
