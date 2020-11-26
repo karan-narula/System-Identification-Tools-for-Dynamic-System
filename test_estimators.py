@@ -17,7 +17,7 @@ def bind_npi_pi(angles):
     return angles
 
 
-def plot_stuff(dynamic_obj, est_states, num_row=1):
+def plot_stuff(dynamic_obj, est_states, angle_states=[], num_row=1):
     """
     Useful function for plotting stuff. It plots 2 figures: 1 -> estimated parameters vs gt,
     2-> main dynamic states such as trajectory, heading, etc
@@ -26,6 +26,7 @@ def plot_stuff(dynamic_obj, est_states, num_row=1):
         dynamic_obj (RoverPartialDynEst obj): dynamic object
         est_states (numpy array [4+len(dynamic_obj.est_params) x nt]): estimated states of the dynamic model,
             same shape as dynamic_obj.gt_states
+        angle_states (list): list of heading state keys to be collated with binding function and stored in dynamic object
         num_row (int): number of rows of subplots in figure 1
 
     """
@@ -68,12 +69,22 @@ def plot_stuff(dynamic_obj, est_states, num_row=1):
     for i, key in enumerate(other_states_dict):
         state_ind = other_states_dict[key]
         plt.subplot(2, num_col, i+2)
-        plt.plot(dynamic_obj.T, est_states[state_ind, :], label='est')
-        plt.plot(dynamic_obj.T,
-                 dynamic_obj.gt_states[state_ind, :], label='gt')
+        if key in angle_states:
+            plt.plot(dynamic_obj.T, bind_npi_pi(
+                est_states[state_ind, :]), label='est')
+            plt.plot(dynamic_obj.T, bind_npi_pi(
+                dynamic_obj.gt_states[state_ind, :]), label='gt')
+        else:
+            plt.plot(dynamic_obj.T, est_states[state_ind, :], label='est')
+            plt.plot(dynamic_obj.T,
+                     dynamic_obj.gt_states[state_ind, :], label='gt')
         if state_ind in dynamic_obj.state_indices:
-            plt.plot(dynamic_obj.T, dynamic_obj.outputs[dynamic_obj.state_indices.index(
-                state_ind), :], label='output')
+            if key in angle_states:
+                plt.plot(dynamic_obj.T, bind_npi_pi(dynamic_obj.outputs[dynamic_obj.state_indices.index(
+                    state_ind), :]), label='output')
+            else:
+                plt.plot(dynamic_obj.T, dynamic_obj.outputs[dynamic_obj.state_indices.index(
+                    state_ind), :], label='output')
         plt.grid(True, "both")
         plt.xlabel('Time (s)')
         plt.ylabel(key)
@@ -391,7 +402,8 @@ def test_pbgf(dyn_class, param_dict, max_inputs_list, **kwargs):
     est_states = create_filtered_estimates(dynamic_obj, order=2)[0]
 
     # plot the convergence of the parameters
-    plot_stuff(dynamic_obj, est_states, num_row=2)
+    plot_stuff(dynamic_obj, est_states,
+               angle_states=configuration['angle_states'], num_row=2)
 
 
 if __name__ == '__main__':
