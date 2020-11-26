@@ -160,7 +160,7 @@ class PointBasedFilter(object):
             innovation = y - Z
             for key in innovation_bound_func:
                 innovation[key,:] = innovation_bound_func[key](innovation[key,:])
-            X += np.matmul(K, y - Z)
+            X += np.matmul(K, innovation)
             # covariance update (equation 5.41)
             P -= np.matmul(K, Pxy.T)
 
