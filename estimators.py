@@ -153,8 +153,10 @@ class PointBasedFilter(object):
         if len(y):
             # check if innovation keys is valid
             for key in innovation_bound_func:
-                assert key in range(len(y)), "Key of innovation bound function dictionary should be within the length of the output"
-                assert callable(innovation_bound_func[key]), "Innovation bound function is not callable"
+                assert key in range(len(
+                    y)), "Key of innovation bound function dictionary should be within the length of the output"
+                assert callable(
+                    innovation_bound_func[key]), "Innovation bound function is not callable"
 
             ip = np.arange(n+nq, n+nq+nr)
             Z, _, Pz, z2 = self.unscented_transformH(
@@ -166,7 +168,8 @@ class PointBasedFilter(object):
             # state update (equation 5.40)
             innovation = y - Z
             for key in innovation_bound_func:
-                innovation[key,:] = innovation_bound_func[key](innovation[key,:])
+                innovation[key, :] = innovation_bound_func[key](
+                    innovation[key, :])
             X += np.matmul(K, innovation)
             # covariance update (equation 5.41)
             P -= np.matmul(K, Pxy.T)

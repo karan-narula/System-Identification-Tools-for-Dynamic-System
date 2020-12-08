@@ -1194,7 +1194,8 @@ class RearDriveFrontSteerSubStateVel(AbstractDyn):
                 next_state[self.state_dict[key]] += dt * \
                     state_dot[0, self.state_dict[key]]
             else:
-                next_state[self.state_dict[key]] = state_dot[0, self.state_dict[key]]
+                next_state[self.state_dict[key]
+                           ] = state_dot[0, self.state_dict[key]]
 
         return next_state
 

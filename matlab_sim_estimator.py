@@ -889,7 +889,7 @@ if __name__ == '__main__':
                      'time_varying_q': 0.0,
                      'threshold_ws': 20.0}
     configuration['data_state_mapping'] = {
-        'x': 'x', 'y': 'y', 'theta': 'heading', 'vx': 'vx', 'vy': 'vy', 'w': 'yawrate', 'ax': 'ax', 'ay':'ay'}
+        'x': 'x', 'y': 'y', 'theta': 'heading', 'vx': 'vx', 'vy': 'vy', 'w': 'yawrate', 'ax': 'ax', 'ay': 'ay'}
     dynamic_obj = create_dyn_obj(
         RearDriveFrontSteerSubStateVelEst, param_dict, **configuration)
 
