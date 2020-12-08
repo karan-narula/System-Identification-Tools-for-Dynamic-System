@@ -92,7 +92,7 @@ class AbstractDyn(object):
 
         return True
 
-    def sample_nlds(self, z0, U, T, Q=None, P0=None, R=None, store_variables=True, overwrite_keys=[], overwrite_vals=[]):
+    def sample_nlds(self, z0, U, T, Q=None, P0=None, R=None, Qu=None, store_variables=True, overwrite_keys=[], overwrite_vals=[]):
         """
         Retrieve ground truth, initial and output data (SNLDS: Stochastic non-linear dynamic system)
 
@@ -103,6 +103,7 @@ class AbstractDyn(object):
             Q (numpy array [nq x nq]): noise covariance matrix involved in the stochastic dynamic model
             P0 (numpy array [n x n]): initial covariance for the initial estimate around the ground truth
             R (numpy array [nr x nr]): covariance matrix of the noise involved in observed sensor data
+            Qu (numpy array [nqu x nqu]): noise covariance matrix involved in the input
             store_variables (bool): whether to store ground truth, initial and output arrays within the class
             overwrite_keys (list): list of state keys to be overwritten
             overwrite_vals (list): list of ground truth values to overwrite state propagation
@@ -115,8 +116,8 @@ class AbstractDyn(object):
         assert U.shape == (
             self.num_in, num_sol), "Incorrect size of input matrix"
 
-        def process_model(x, u, noise, dt, param_dict): return self.forward_prop(
-            x, self.dxdt(x, u, param_dict), dt) + noise
+        def process_model(x, u, noise, input_noise, dt, param_dict): return self.forward_prop(
+            x, self.dxdt(x, u + input_noise, param_dict), dt) + noise
 
         def observation_model(
             x, u, noise, param_dict): return self.output_model(x, u, param_dict) + noise
@@ -147,7 +148,7 @@ class AbstractDyn(object):
         # get ground truth data, initial and output data
         dts = np.diff(T)
         dts = np.append(dts, dts[-1])
-        gt_states, initial_cond, outputs, additional_args_pm_list, additional_args_om_list = sample_nlds(z0, U, num_sol, process_model, observation_model, self.num_out, Q=Q, P0=P0, R=R, additional_args_pm=[
+        gt_states, initial_cond, outputs, additional_args_pm_list, additional_args_om_list = sample_nlds(z0, U, num_sol, process_model, observation_model, self.num_out, Q=Q, P0=P0, R=R, Qu=Qu, additional_args_pm=[
                                                                                                          dts, self.param_list], additional_args_om=[self.param_list], overwrite_inds=overwrite_inds, overwrite_vals=overwrite_vals)
 
         # separately, get the derivative of ground truth
@@ -162,6 +163,7 @@ class AbstractDyn(object):
         # store varibles to avoid parsing things around?
         if store_variables:
             self.Q = Q
+            self.Qu = Qu
             self.R = R
             self.P0 = P0
 

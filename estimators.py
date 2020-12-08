@@ -91,7 +91,7 @@ class PointBasedFilter(object):
         self.method = method
         self.order = order
 
-    def predict_and_or_update(self, X, P, f, h, Q, R, u, y, additional_args_pm=[], additional_args_om=[], innovation_bound_func={}, predict_flag=True):
+    def predict_and_or_update(self, X, P, f, h, Q, R, u, y, Qu=None, additional_args_pm=[], additional_args_om=[], innovation_bound_func={}, predict_flag=True):
         """
         Perform one iteration of prediction and/or update.
         algorithm reference: Algorithm 5.1, page 104 of "Compressed Estimation in Coupled High-dimensional Processes"
@@ -99,12 +99,13 @@ class PointBasedFilter(object):
         Args:
             X (numpy array [n x 1]): expected value of the states
             P (numpy array [n x n]): covariance of the states
-            f (function): function handle for the process model; expected signature f(state, input, noise, ...)
+            f (function): function handle for the process model; expected signature f(state, input, model noise, input noise, ...)
             h (function): function handle for the observation model; expected signature h(state, input, noise, ...)
             Q (numpy array [nq x nq]): process model noise covariance in the prediction step
             R (numpy array [nr x nr]): observation model noise covariance in the update step
             u (*): current input required for function f & possibly function h
             y (numpy array [nu x 1]): current measurement/output of the system
+            Qu (numpy array [nqu x nqu]): input noise covariance in the prediction step
             additional_args_pm (list): list of additional arguments to be passed to the process model during the prediction step
             additional_args_om (list): list of additional arguments to be passed to the observation model during the update step
             innovation_bound_func (dict): dictionary with innovation index as keys and callable function as value to bound
@@ -119,9 +120,14 @@ class PointBasedFilter(object):
         # create augmented system of the states and the noises (step 1 of algorithm 5.1, equation 5.42)
         n = len(X)
         nq = Q.shape[0]
+        if Qu is not None:
+            nqu = Qu.shape[0]
+        else:
+            nqu = 0
+            Qu = np.zeros((nqu, nqu))
         nr = R.shape[0]
-        X1 = np.concatenate((X, np.zeros((nq, 1)), np.zeros((nr, 1))), axis=0)
-        P1 = block_diag(P, Q, R)
+        X1 = np.concatenate((X, np.zeros((nq+nqu+nr, 1))), axis=0)
+        P1 = block_diag(P, Q, Qu, R)
 
         # generate cubature/sigma points and the weights based on the method (steps 2-4 of algorithm 5.1)
         if self.method == 'UKF':
@@ -139,8 +145,9 @@ class PointBasedFilter(object):
             # prediction step (step 5 of algorithm 5.1) by implementing equations 5.25, 5.34 and 5.35 (pages 105-106)
             ia = np.arange(n)
             ib = np.arange(n, n+nq)
+            ic = np.arange(n+nq, n+nq+nqu)
             X, x, P, x1 = self.unscented_transformF(
-                x, W, WeightMat, L, f, u, ia, ib, additional_args_pm)
+                x, W, WeightMat, L, f, u, ia, ib, ic, additional_args_pm)
 
         # update step (step 6 of algorithm 5.1) by implementing equations 5.36-5.41 (page 106)
         if len(y):
@@ -203,7 +210,7 @@ class PointBasedFilter(object):
 
         return Y, y, P, y1
 
-    def unscented_transformF(self, x, W, WeightMat, L, f, u, ia, iq, additional_args):
+    def unscented_transformF(self, x, W, WeightMat, L, f, u, ia, iq, iqu, additional_args):
         """
         Function to propagate sigma/cubature points through process model function.
 
@@ -216,6 +223,7 @@ class PointBasedFilter(object):
             u (?): current input required for function f
             ia (numpy array [n_s x 1]): row indices of the states in sima/cubature points
             iq (numpy array [n_q x 1]): row indices of the process noise in sigma/cubature points
+            iqu (numpy array [n_qu x 1]): row indices of the input noise in sigma/cubature points
             additional_args (list): list of additional arguments to be passed to the process model
 
         Returns:
@@ -230,7 +238,12 @@ class PointBasedFilter(object):
         y = x
         # Propagating sigma/cubature points through function (equation 5.25)
         for k in range(L):
-            y[ia, k] = f(x[ia, k], u, x[iq, k], *additional_args)
+            if len(iqu):
+                y[ia, k] = f(x[ia, k], u, x[iq, k],
+                             x[iqu, k], *additional_args)
+            else:
+                y[ia, k] = f(x[ia, k], u, x[iq, k],
+                             np.zeros(u.shape), *additional_args)
             # Calculating mean (equation 5.34)
             Y += W.flat[k]*y[np.arange(order), k:k+1]
 
@@ -752,7 +765,7 @@ def fit_data_rover(states, U, dt, vxdot=np.array([]), yawrate=np.array([]), vy=n
     return parameters
 
 
-def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, additional_args_pm=[], additional_args_om=[], overwrite_inds=[], overwrite_vals=[]):
+def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, Qu=None, additional_args_pm=[], additional_args_om=[], overwrite_inds=[], overwrite_vals=[]):
     """
     Retrieve ground truth, initial and output data (SNLDS: Stochastic non-linear dynamic system)
 
@@ -767,6 +780,7 @@ def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, additional_ar
         Q (numpy array [nq x nq]): noise covariance matrix involved in the stochastic model f
         P0 (numpy array [n x n]): initial covariance for the initial estimate around the ground truth
         R (numpy array [nr x nr]): covariance matrix of the noise involved in h function
+        Qu (numpy array [nqu x nqu]): noise covariance matrix involved in the input to the stochastic model f
         additional_args_pm (list): list of additional arguments to be passed to function f
         additional_args_om (list): list of additional arguments to be passed to function h
         overwrite_inds (list): list of state indices to be overwritten
@@ -786,6 +800,8 @@ def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, additional_ar
         U = np.zeros((0, nt))
     if Q is None:
         Q = np.zeros((len(z0), len(z0)))
+    if Qu is None:
+        Qu = np.zeros((U.shape[0], U.shape[0]))
     if P0 is None:
         P0 = np.zeros((len(z0), len(z0)))
     if R is None:
@@ -796,6 +812,8 @@ def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, additional_ar
         nt, U.shape[1])
     assert Q.shape == (len(z0), len(
         z0)), "Inconsistent size of process noise matrix"
+    assert Qu.shape == (U.shape[0], U.shape[0]
+                        ), "Inconsistent size of input noise matrix"
     assert P0.shape == (len(z0), len(
         z0)), "Inconsistent size of initial covariance matrix"
     assert R.shape == (
@@ -835,6 +853,7 @@ def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, additional_ar
 
     # generate noise samples for stochastic model and observations
     state_noise_samples = sample_gaussian(np.zeros(z0.shape), Q, nt)
+    input_noise_samples = sample_gaussian(np.zeros((Qu.shape[0], 1)), Qu, nt)
     obs_noise_samples = sample_gaussian(
         np.zeros((num_out, 1)), R, nt)
 
@@ -847,8 +866,8 @@ def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, additional_ar
                       obs_noise_samples[:, 0], *[sub[0] for sub in additional_args_om_list])
 
     for i in range(1, nt):
-        gt_states[:, i] = f(gt_states[:, i-1], U[:, i-1],
-                            state_noise_samples[:, i-1], *[sub[i-1] for sub in additional_args_pm_list])
+        gt_states[:, i] = f(gt_states[:, i-1], U[:, i-1], state_noise_samples[:, i-1],
+                            input_noise_samples[:, i-1], *[sub[i-1] for sub in additional_args_pm_list])
 
         # overwrite information as per user requirement
         gt_states[overwrite_inds, i] = overwrite_vals_array[:, i]
@@ -883,7 +902,7 @@ def test_pbgf_linear(n=10, m=5, nt=10):
     J = np.eye(n) + dt*(-2.0*np.eye(n) +
                         np.diag(np.ones(n-1), 1) + np.diag(np.ones(n-1), -1))
 
-    def process_model(x, u, noise): return np.matmul(J, x) + noise
+    def process_model(x, u, noise, input_noise): return np.matmul(J, x) + noise
     Q = 5.0*np.eye(n)
     out_loc = np.random.permutation(n)[:m]
     R = 1.0*np.eye(m)
@@ -909,7 +928,7 @@ def test_pbgf_linear(n=10, m=5, nt=10):
     for i in range(1, nt):
         # KF code
         # prediction step
-        X1 = process_model(X1, [], 0.0)
+        X1 = process_model(X1, [], 0.0, 0.0)
         P1 = np.matmul(np.matmul(J, P1), J.T) + Q
 
         # update step
@@ -960,7 +979,7 @@ def test_pbgf_1d_linear(gt_const=10.0, initial_cov=10.0, q_cov=1e-2, r_cov=1.0, 
     P = initial_cov*np.ones((1, 1))
 
     # process and observation model
-    def process_model(x, u=[], noise=0.0): return x + noise
+    def process_model(x, u=[], noise=0.0, input_noise=0.0): return x + noise
     def observation_model(x, u=[], noise=0.0): return x + noise
 
     # process and observation noises

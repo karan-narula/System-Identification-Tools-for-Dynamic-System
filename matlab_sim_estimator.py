@@ -746,8 +746,8 @@ def extract_model(data, data_indices, dynamic_obj):
     dts = np.append(dts, dts[-1])
 
     # models
-    def process_model(x, u, noise, dt, param_dict): return dynamic_obj.forward_prop(
-        x, dynamic_obj.dxdt(x, u, param_dict), dt) + noise
+    def process_model(x, u, noise, input_noise, dt, param_dict): return dynamic_obj.forward_prop(
+        x, dynamic_obj.dxdt(x, u + input_noise, param_dict), dt) + noise
 
     def observation_model(
         x, u, noise, param_dict): return dynamic_obj.output_model(x, u, param_dict) + noise
