@@ -943,7 +943,7 @@ def test_pbgf_linear(n=10, m=5, nt=10):
 
         ## PBGF code
         X2, P2 = pbgf.predict_and_or_update(
-            X2, P2, process_model, observation_model, Q, R, [], outputs[:, i:i+1])
+            X2, P2, process_model, observation_model, Q, R, np.array([]), outputs[:, i:i+1])
 
         assert np.allclose(
             P1, P2), "Covariance from KF and PBGF should be the same as problem is linear"
@@ -1019,7 +1019,7 @@ def test_pbgf_1d_linear(gt_const=10.0, initial_cov=10.0, q_cov=1e-2, r_cov=1.0, 
 
         ## PBGF code
         X2, P2 = pbgf.predict_and_or_update(
-            X2, P2, process_model, observation_model, Q, R, [], outputs[:, i:i+1])
+            X2, P2, process_model, observation_model, Q, R, np.array([]), outputs[:, i:i+1])
 
         assert np.allclose(
             P1, P2), "Covariance from KF and PBGF should be the same as problem is linear"
