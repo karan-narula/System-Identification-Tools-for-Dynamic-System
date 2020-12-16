@@ -591,6 +591,238 @@ def findCombinationsUtil(arr, index, num, reducedNum, output):
         findCombinationsUtil(arr, index+1, num, reducedNum-k, output)
 
 
+class PointBasedFixedLagSmoother(PointBasedFilter):
+    """
+    Class for performing UKF/CKF fixed-lag smoothing
+
+    Args:
+        method (str): The method for filtering algorithm, there are two choices: 'UKF' for unscented Filter
+            and 'CKF' for Cubature Filter
+        order (int): Order of accuracy for integration rule. Currently, there are two choices: 2 and 4
+        lag_interval (int): lag interval for producing smoothed estimate
+
+    """
+
+    def __init__(self, method, order, lag_interval):
+        super(PointBasedFixedLagSmoother, self).__init__(method, order)
+
+        self.lag_interval = lag_interval
+        # pre-allocate some storage during forward pass (filtering)
+        self.pred_density = []
+        self.filter_density = []
+        self.gain = []
+
+        self.init_cond_set = False
+        self.augmented = False
+        self.backward_pass = False
+        self.prevX = None
+        self.prevP = None
+
+    def set_initial_cond(self, X, P):
+        """
+        Set the initial condition of the smoother, i.e. the distribution at time zero.
+
+        Args:
+            X (numpy array [n x 1]): expected value of the states
+            P (numpy array [n x n]): covariance of the states
+
+        """
+        self.init_cond_set = True
+        self.n = len(X)
+        self.filter_density.append((X.copy(), P.copy()))
+
+    def predict_and_or_update(self, f, h, Q, R, u, y, Qu=None, additional_args_pm=[], additional_args_om=[], innovation_bound_func={}, predict_flag=True):
+        """
+        Perform one iteration of prediction and/or update + backward pass to produce smoothed estimate when applicable.
+        algorithm reference: Algorithm 5.1, page 104 of "Compressed Estimation in Coupled High-dimensional Processes"
+
+        Args:
+            f (function): function handle for the process model; expected signature f(state, input, model noise, input noise, ...)
+            h (function): function handle for the observation model; expected signature h(state, input, noise, ...)
+            Q (numpy array [nq x nq]): process model noise covariance in the prediction step
+            R (numpy array [nr x nr]): observation model noise covariance in the update step
+            u (*): current input required for function f & possibly function h
+            y (numpy array [nu x 1]): current measurement/output of the system
+            Qu (numpy array [nqu x nqu]): input noise covariance in the prediction step
+            additional_args_pm (list): list of additional arguments to be passed to the process model during the prediction step
+            additional_args_om (list): list of additional arguments to be passed to the observation model during the update step
+            innovation_bound_func (dict): dictionary with innovation index as keys and callable function as value to bound
+                innovation when needed
+            predict_flag (bool): perform prediction? defaults to true
+
+        Returns:
+            X_fi (numpy array [n x 1]): fixed-interval list of smoothed expected values of the states with recent prediction & update
+            P_fi (numpy array [n x n]): fixed-interval list of smoothed covariance of the states with recent prediction & update
+            smoothed_flag (bool): whether estimate returned is filtered or smoothed estimate; filtered estimate is initially
+                returned until a lag_length worth of observations have been cumulated.
+
+        """
+        assert self.init_cond_set, "User must specify the initial condition separately"
+        # pre-allocate fixed-interval results
+        X_fi = [[]]*(self.lag_interval+1)
+        P_fi = [[]]*(self.lag_interval+1)
+
+        # create augmented system of the states and the noises (step 1 of algorithm 5.1, equation 5.42)
+        n = self.n
+        nq = Q.shape[0]
+        if Qu is not None:
+            nqu = Qu.shape[0]
+        else:
+            nqu = 0
+            Qu = np.zeros((nqu, nqu))
+        nr = R.shape[0]
+        if not self.augmented:
+            X1 = np.concatenate(
+                (self.filter_density[-1][0], self.filter_density[-1][0], np.zeros((nq+nqu+nr, 1))), axis=0)
+            P1 = block_diag(
+                self.filter_density[-1][1], self.filter_density[-1][1], Q, Qu, R)
+            P1[0:n, n:2*n] = self.filter_density[-1][1]
+            P1[n:2*n, 0:n] = self.filter_density[-1][1]
+
+            self.augmented = True
+        else:
+            X1 = np.concatenate(
+                (self.prevX, np.zeros((nq+nqu+nr, 1))), axis=0)
+            P1 = block_diag(self.prevP, Q, Qu, R)
+
+        # generate cubature/sigma points and the weights based on the method (steps 2-4 of algorithm 5.1)
+        if self.method == 'UKF':
+            if self.order == 2:
+                x, L, W, WeightMat = self.sigmas2(X1, P1)
+            elif self.order == 4:
+                x, L, W, WeightMat = self.sigmas4(X1, P1)
+        elif self.method == 'CKF':
+            if self.order == 2:
+                x, L, W, WeightMat = self.cubature2(X1, P1)
+            elif self.order == 4:
+                x, L, W, WeightMat = self.cubature4(X1, P1)
+
+        if predict_flag:
+            # prediction step (step 5 of algorithm 5.1) by implementing equations 5.25, 5.34 and 5.35 (pages 105-106)
+            ia = np.arange(n)
+            ib = np.arange(n, 2*n)
+            iq = np.arange(2*n, 2*n+nq)
+            iqu = np.arange(2*n+nq, 2*n+nq+nqu)
+            X, x, P, x1 = self.unscented_transformF(
+                x, W, WeightMat, L, f, u, ia, ib, iq, iqu, additional_args_pm)
+
+            # store augmented belief to be used in the future
+            self.prevX = X.copy()
+            self.prevP = P.copy()
+
+            # temporary return values
+            X_fi[self.lag_interval] = X[ib, :]
+            P_fi[self.lag_interval] = P[n:2*n, n:2*n]
+
+        # update step (step 6 of algorithm 5.1) by implementing equations 5.36-5.41 (page 106)
+        if len(y):
+            # need to reaugment the states
+            self.augmented = False
+
+            # store predictive density and gain
+            if not self.backward_pass:
+                self.pred_density.append((
+                    X[ib, :].copy(), P[n:2*n, n:2*n].copy()))
+                self.gain.append(
+                    np.matmul(P[0:n, n:2*n], np.linalg.inv(P[n:2*n, n:2*n])))
+                if len(self.gain) >= self.lag_interval:
+                    self.backward_pass = True
+            else:
+                self.pred_density[:-1] = self.pred_density[1:]
+                self.pred_density[-1] = (X[ib, :].copy(),
+                                         P[n:2*n, n:2*n].copy())
+                self.gain[:-1] = self.gain[1:]
+                self.gain[-1] = np.matmul(P[0:n, n:2*n],
+                                          np.linalg.inv(P[n:2*n, n:2*n]))
+
+            # check if innovation keys is valid
+            for key in innovation_bound_func:
+                assert key in range(len(
+                    y)), "Key of innovation bound function dictionary should be within the length of the output"
+                assert callable(
+                    innovation_bound_func[key]), "Innovation bound function is not callable"
+
+            ip = np.arange(2*n+nq+nqu, 2*n+nq+nqu+nr)
+            Z, _, Pz, z2 = self.unscented_transformH(
+                x, W, WeightMat, L, h, u, ib, ip, len(y), additional_args_om)
+            # transformed cross-covariance (equation 5.38)
+            Pxy = np.matmul(np.matmul(x1, WeightMat), z2.T)
+            # Kalman gain
+            K = np.matmul(Pxy, np.linalg.inv(Pz))
+            # state update (equation 5.40)
+            innovation = y - Z
+            for key in innovation_bound_func:
+                innovation[key, :] = innovation_bound_func[key](
+                    innovation[key, :])
+            X += np.matmul(K, innovation)
+            # covariance update (equation 5.41)
+            P -= np.matmul(K, Pxy.T)
+
+            # perform backward pass
+            X_fi[self.lag_interval] = X[ib, :]
+            P_fi[self.lag_interval] = P[n:2*n, n:2*n]
+            if self.backward_pass:
+                for j in range(self.lag_interval-1, -1, -1):
+                    X_fi[j] = self.filter_density[j][0] + np.matmul(
+                        self.gain[j], X_fi[j+1] - self.pred_density[j][0])
+                    P_fi[j] = self.filter_density[j][1] + np.matmul(
+                        np.matmul(self.gain[j], P_fi[j+1] - self.pred_density[j][1]), self.gain[j].T)
+
+            # store the filtered density
+            if len(self.gain) < self.lag_interval:
+                self.filter_density.append((X[ib, :], P[n:2*n, n:2*n]))
+            else:
+                if predict_flag:
+                    self.filter_density[:-1] = self.filter_density[1:]
+                self.filter_density[-1] = (X[ib, :], P[n:2*n, n:2*n])
+
+        return X_fi, P_fi, self.backward_pass
+
+    def unscented_transformF(self, x, W, WeightMat, L, f, u, ia, ib, iq, iqu, additional_args):
+        """
+        Function to propagate sigma/cubature points through process model function.
+
+        Args:
+            x (numpy array [n_a x L]): sigma/cubature points
+            W (numpy array [L x 1 or 1 x L]: 1D Weight array of the sigma/cubature points
+            WeightMat (numpy array [L x L]): weight matrix with weights in W of the points on the diagonal
+            L (int): number of points
+            f (function): function handle for the process model; expected signature f(state, input, noise, ...)
+            u (?): current input required for function f
+            ia (numpy array [n_s x 1]): row indices of the frozen states in sima/cubature points
+            ib (numpy array [n_s x 1]): row indices of the dynamic states in sima/cubature points
+            iq (numpy array [n_q x 1]): row indices of the process noise in sigma/cubature points
+            iqu (numpy array [n_qu x 1]): row indices of the input noise in sigma/cubature points
+            additional_args (list): list of additional arguments to be passed to the process model
+
+        Returns:
+            Y (numpy array [n_s x 1]): Expected value vector of the result from transformation function f
+            y (numpy array [n_a x L]): Transformed sigma/cubature points
+            P (numpy array [n_s x n_s]): Covariance matrix of the result from transformation function f
+            y1 (numpy array [n_s x L]): zero-mean Transformed sigma/cubature points
+
+        """
+        order = len(ia) + len(ib)
+        Y = np.zeros((order, 1))
+        y = x
+        # Propagating sigma/cubature points through function (equation 5.25)
+        for k in range(L):
+            if len(iqu):
+                y[ib, k] = f(x[ib, k], u, x[iq, k],
+                             x[iqu, k], *additional_args)
+            else:
+                y[ib, k] = f(x[ib, k], u, x[iq, k],
+                             np.zeros(u.shape), *additional_args)
+            # Calculating mean (equation 5.34)
+            Y += W.flat[k]*y[np.arange(order), k:k+1]
+
+        # Calculating covariance (equation 5.35)
+        y1 = y[np.arange(order), :] - Y
+        P = np.matmul(np.matmul(y1, WeightMat), y1.T)
+
+        return Y, y, P, y1
+
+
 def fit_data_rover_dynobj(dynamic_obj, vy=np.array([]), back_rotate=False):
     """
     Perform LS and NLS fitting parameters estimation for the rover dynamics (c1-c9) using dynamic object.
