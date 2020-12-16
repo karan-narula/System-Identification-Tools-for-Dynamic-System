@@ -158,7 +158,7 @@ class PointBasedFilter(object):
                 assert callable(
                     innovation_bound_func[key]), "Innovation bound function is not callable"
 
-            ip = np.arange(n+nq, n+nq+nr)
+            ip = np.arange(n+nq+nqu, n+nq+nqu+nr)
             Z, _, Pz, z2 = self.unscented_transformH(
                 x, W, WeightMat, L, h, u, ia, ip, len(y), additional_args_om)
             # transformed cross-covariance (equation 5.38)
