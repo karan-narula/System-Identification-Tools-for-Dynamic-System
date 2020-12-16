@@ -613,7 +613,7 @@ class PointBasedFixedLagSmoother(PointBasedFilter):
         self.gain = []
 
         self.init_cond_set = False
-        self.augmented = False
+        self.latest_action = None
         self.backward_pass = False
         self.prevX = None
         self.prevP = None
@@ -630,6 +630,7 @@ class PointBasedFixedLagSmoother(PointBasedFilter):
         self.init_cond_set = True
         self.n = len(X)
         self.filter_density.append((X.copy(), P.copy()))
+        self.latest_action = 'update'
 
     def predict_and_or_update(self, f, h, Q, R, u, y, Qu=None, additional_args_pm=[], additional_args_om=[], innovation_bound_func={}, predict_flag=True):
         """
@@ -671,15 +672,13 @@ class PointBasedFixedLagSmoother(PointBasedFilter):
             nqu = 0
             Qu = np.zeros((nqu, nqu))
         nr = R.shape[0]
-        if not self.augmented:
+        if self.latest_action == 'update':
             X1 = np.concatenate(
                 (self.filter_density[-1][0], self.filter_density[-1][0], np.zeros((nq+nqu+nr, 1))), axis=0)
             P1 = block_diag(
                 self.filter_density[-1][1], self.filter_density[-1][1], Q, Qu, R)
             P1[0:n, n:2*n] = self.filter_density[-1][1]
             P1[n:2*n, 0:n] = self.filter_density[-1][1]
-
-            self.augmented = True
         else:
             X1 = np.concatenate(
                 (self.prevX, np.zeros((nq+nqu+nr, 1))), axis=0)
@@ -714,26 +713,27 @@ class PointBasedFixedLagSmoother(PointBasedFilter):
             X_fi[self.lag_interval] = X[ib, :]
             P_fi[self.lag_interval] = P[n:2*n, n:2*n]
 
+            # latest action is predict
+            self.latest_action = 'predict'
+
         # update step (step 6 of algorithm 5.1) by implementing equations 5.36-5.41 (page 106)
         if len(y):
-            # need to reaugment the states
-            self.augmented = False
-
             # store predictive density and gain
-            if not self.backward_pass:
-                self.pred_density.append((
-                    X[ib, :].copy(), P[n:2*n, n:2*n].copy()))
-                self.gain.append(
-                    np.matmul(P[0:n, n:2*n], np.linalg.inv(P[n:2*n, n:2*n])))
-                if len(self.gain) >= self.lag_interval:
-                    self.backward_pass = True
-            else:
-                self.pred_density[:-1] = self.pred_density[1:]
-                self.pred_density[-1] = (X[ib, :].copy(),
-                                         P[n:2*n, n:2*n].copy())
-                self.gain[:-1] = self.gain[1:]
-                self.gain[-1] = np.matmul(P[0:n, n:2*n],
-                                          np.linalg.inv(P[n:2*n, n:2*n]))
+            if self.latest_action == 'predict':
+                if not self.backward_pass:
+                    self.pred_density.append((
+                        X[ib, :].copy(), P[n:2*n, n:2*n].copy()))
+                    self.gain.append(
+                        np.matmul(P[0:n, n:2*n], np.linalg.inv(P[n:2*n, n:2*n])))
+                    if len(self.gain) >= self.lag_interval:
+                        self.backward_pass = True
+                else:
+                    self.pred_density[:-1] = self.pred_density[1:]
+                    self.pred_density[-1] = (X[ib, :].copy(),
+                                             P[n:2*n, n:2*n].copy())
+                    self.gain[:-1] = self.gain[1:]
+                    self.gain[-1] = np.matmul(P[0:n, n:2*n],
+                                              np.linalg.inv(P[n:2*n, n:2*n]))
 
             # check if innovation keys is valid
             for key in innovation_bound_func:
@@ -769,12 +769,16 @@ class PointBasedFixedLagSmoother(PointBasedFilter):
                         np.matmul(self.gain[j], P_fi[j+1] - self.pred_density[j][1]), self.gain[j].T)
 
             # store the filtered density
-            if len(self.gain) < self.lag_interval:
+            if self.latest_action == 'update':
+                self.filter_density[-1] = (X[ib, :], P[n:2*n, n:2*n])
+            elif len(self.gain) < self.lag_interval:
                 self.filter_density.append((X[ib, :], P[n:2*n, n:2*n]))
             else:
-                if predict_flag:
-                    self.filter_density[:-1] = self.filter_density[1:]
+                self.filter_density[:-1] = self.filter_density[1:]
                 self.filter_density[-1] = (X[ib, :], P[n:2*n, n:2*n])
+
+            # update latest action
+            self.latest_action = 'update'
 
         return X_fi, P_fi, self.backward_pass
 
