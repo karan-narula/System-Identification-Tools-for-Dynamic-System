@@ -1273,6 +1273,155 @@ def test_pbgf_1d_linear(gt_const=10.0, initial_cov=10.0, q_cov=1e-2, r_cov=1.0, 
     plt.show()
 
 
+def test_pbgf_fixed_lag_smoothing_linear(n=10, m=5, nt=10, lag_interval=5):
+    """
+    Test the PBGF smoothed estimate against filtered estimate. This problem is the same as that of test_pbgf_linear.
+
+    Args:
+        n (int): dimensionality of problem; defaults to 10
+        m (int): number of outputs which are randomly selected from the states; defaults to 5
+        nt (int): number of filtering iterations; defaults to 10
+        lag_interval (int): lag interval for producing smoothed estimate
+
+    """
+    # control random seed generator
+    np.random.seed(0)
+
+    # set up the true initial condition
+    X = 5.0*np.random.randn(n, 1)
+    P = 10.0*np.random.randn(n, n)
+    P = np.matmul(P, P.T)
+
+    # process and measurement models (linear)
+    dt = 0.05
+    J = np.eye(n) + dt*(-2.0*np.eye(n) +
+                        np.diag(np.ones(n-1), 1) + np.diag(np.ones(n-1), -1))
+
+    def process_model(x, u, noise, input_noise): return np.matmul(J, x) + noise
+    Q = 5.0*np.eye(n)
+    out_loc = np.random.permutation(n)[:m]
+    R = 1.0*np.eye(m)
+    H = np.zeros((m, n))
+    l_ind = out_loc + np.arange(m)*n
+    H.flat[l_ind] = 1.0
+    def observation_model(x, u, noise): return np.matmul(H, x) + noise
+
+    ## generate the output of the real time system
+    x_gt, x0, outputs = sample_nlds(
+        X, [], nt, process_model, observation_model, m, Q, P, R)[0:3]
+
+    ## loop through and compare result from pbgf filter and fixed-lag smoother
+    pbgf_filt = PointBasedFilter('CKF', 2)
+    pbgf_smooth = PointBasedFixedLagSmoother('CKF', 2, lag_interval)
+
+    X_filt = x0.copy()
+    X_smooth = x0.copy()
+
+    P_filt = P.copy()
+    P_smooth = P.copy()
+
+    # set initial condition for smoother
+    pbgf_smooth.set_initial_cond(X_smooth, P_smooth)
+
+    # pre-allocate array to store history of filtered and smoothed means
+    X_filt_hist = np.zeros((X_filt.shape[0], nt))
+    X_filt_hist[:, 0:1] = X_filt.copy()
+    X_smooth_hist = np.zeros((X_smooth.shape[0], nt))
+    X_smooth_hist[:, 0:1] = X_smooth.copy()
+
+    # storage for MSE & NEES
+    mse_filt = np.zeros((nt, 1))
+    error = X_filt - x_gt[:, 0:1]
+    mse_filt[0] = np.mean(error**2)
+    nees_filt = np.zeros((nt, 1))
+    nees_filt[0] = np.matmul(np.matmul(error.T, np.linalg.inv(P_filt)), error)
+
+    mse_smooth = np.zeros((nt, 1))
+    error = X_smooth - x_gt[:, 0:1]
+    mse_smooth[0] = np.mean(error**2)
+    nees_smooth = np.zeros((nt, 1))
+    nees_smooth[0] = np.matmul(
+        np.matmul(error.T, np.linalg.inv(P_smooth)), error)
+
+    # storage for differential entropy
+    dentropy_filt = np.zeros((nt, 1))
+    dentropy_filt[0] = 0.5*n*(1.0 + np.log(2*math.pi)) + \
+        0.5*np.log(np.linalg.det(P_filt))
+    dentropy_smooth = np.zeros((nt, 1))
+    dentropy_smooth[0] = 0.5*n*(1.0 + np.log(2*math.pi)) + \
+        0.5*np.log(np.linalg.det(P_smooth))
+
+    # filtering and smoothing loop
+    for i in range(1, nt):
+        ## PBGF filtering code
+        X_filt, P_filt = pbgf_filt.predict_and_or_update(
+            X_filt, P_filt, process_model, observation_model, Q, R, np.array([]), outputs[:, i:i+1])
+        X_filt_hist[:, i:i+1] = X_filt.copy()
+        # calculate mse and differential entropy
+        error = X_filt-x_gt[:, i:i+1]
+        mse_filt[i] = np.mean(error**2)
+        nees_filt[i] = np.matmul(
+            np.matmul(error.T, np.linalg.inv(P_filt)), error)
+        dentropy_filt[i] = 0.5*n*(1.0 + np.log(2*math.pi)) + \
+            0.5*np.log(np.linalg.det(P_filt))
+
+        # PBGF smoothing code
+        X_smooth_fi, P_smooth_fi, smooth_flag = pbgf_smooth.predict_and_or_update(
+            process_model, observation_model, Q, R, np.array([]), outputs[:, i:i+1])
+        if smooth_flag and i - lag_interval >= 0:
+            X_smooth_hist[:, i-lag_interval:i -
+                          lag_interval+1] = X_smooth_fi[0].copy()
+            # calculate mse and differential entropy
+            error = X_smooth_fi[0] - x_gt[:, i-lag_interval:i-lag_interval+1]
+            mse_smooth[i-lag_interval] = np.mean(error**2)
+            nees_smooth[i-lag_interval] = np.matmul(
+                np.matmul(error.T, np.linalg.inv(P_smooth_fi[0])), error)
+            dentropy_smooth[i-lag_interval] = 0.5*n * \
+                (1.0 + np.log(2*math.pi)) + 0.5 * \
+                np.log(np.linalg.det(P_smooth_fi[0]))
+            if i == nt-1:
+                for k in range(1, len(X_smooth_fi)):
+                    error = X_smooth_fi[k] - x_gt[:, i -
+                                                  lag_interval+k:i-lag_interval+k+1]
+                    mse_smooth[i-lag_interval+k] = np.mean(error**2)
+                    nees_smooth[i-lag_interval+k] = np.matmul(
+                        np.matmul(error.T, np.linalg.inv(P_smooth_fi[k])), error)
+                    dentropy_smooth[i-lag_interval+k] = 0.5*n * (1.0 + np.log(
+                        2*math.pi)) + 0.5*np.log(np.linalg.det(P_smooth_fi[k]))
+                    X_smooth_hist[:, i-lag_interval+k:i -
+                                  lag_interval+k+1] = X_smooth_fi[k].copy()
+
+        # assert that filtered result in smoothing is the same as filtering
+        assert np.allclose(
+            X_smooth_fi[-1], X_filt), "Filtered mean from smoothing and filtering are not the same"
+        assert np.allclose(
+            P_smooth_fi[-1], P_filt), "Filtered covariance from smoothing and filtering are not the same"
+
+    # assert that MSE & differential entropy for smoother is lower than filtering
+    for i in range(nt-1):
+        # assert mse_smooth[i] <= mse_filt[i], "Smoothed estimate should be better than filtered estimate"
+        assert dentropy_smooth[i] <= dentropy_filt[i], "Smoothed entropy should be lower than filtered estimate"
+
+    import matplotlib.pyplot as plt
+    plt.subplot(2,1,1)
+    plt.plot(mse_filt, marker='o', label='filtered')
+    plt.plot(mse_smooth, marker='o', label='smoothed')
+    plt.legend()
+    plt.xlabel('Time instance')
+    plt.ylabel('MSE')
+    plt.grid(True, 'both')
+
+    plt.subplot(2,1,2)
+    plt.plot(nees_filt, marker='o', label='filtered')
+    plt.plot(nees_smooth, marker='o', label='smoothed')
+    plt.legend()
+    plt.xlabel('Time instance')
+    plt.ylabel('NEES')
+    plt.grid(True, 'both')
+    plt.show()
+
+
 if __name__ == '__main__':
     test_pbgf_linear()
     test_pbgf_1d_linear(q_cov=1e-2)
+    test_pbgf_fixed_lag_smoothing_linear()
