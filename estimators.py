@@ -827,6 +827,171 @@ class PointBasedFixedLagSmoother(PointBasedFilter):
         return Y, y, P, y1
 
 
+class PointBasedFixedLagSmootherAugmented(PointBasedFilter):
+    """
+    Class for performing UKF/CKF fixed-lag smoothing similar to PointBasedFixedLagSmoother but more computationally intensive
+    due to augmentation of state vector lag length times
+
+    Args:
+        method (str): The method for filtering algorithm, there are two choices: 'UKF' for unscented Filter
+            and 'CKF' for Cubature Filter
+        order (int): Order of accuracy for integration rule. Currently, there are two choices: 2 and 4
+        lag_interval (int): lag interval for producing smoothed estimate
+
+    """
+
+    def __init__(self, method, order, lag_interval):
+        super(PointBasedFixedLagSmootherAugmented,
+              self).__init__(method, order)
+
+        self.lag_interval = lag_interval
+        self.init_cond_set = False
+
+    def set_initial_cond(self, X, P):
+        """
+        Set the initial condition of the smoother, i.e. the distribution at time zero.
+
+        Args:
+            X (numpy array [n x 1]): expected value of the states
+            P (numpy array [n x n]): covariance of the states
+
+        """
+        self.init_cond_set = True
+        self.n = len(X)
+        self.na = (self.lag_interval+1)*self.n
+        self.ia = np.arange(self.n)
+        self.ib = np.arange(self.n, self.na)
+
+        # augment the state and covariance matrix
+        self.X_aug = np.tile(X, (self.lag_interval+1, 1))
+        self.P_aug = np.tile(P, (self.lag_interval+1, self.lag_interval+1))
+
+    def predict_and_or_update(self, f, h, Q, R, u, y, Qu=None, additional_args_pm=[], additional_args_om=[], innovation_bound_func={}, predict_flag=True):
+        """
+        Perform one iteration of prediction and/or update + backward pass to produce smoothed estimate when applicable.
+
+        Args:
+            f (function): function handle for the process model; expected signature f(state, input, model noise, input noise, ...)
+            h (function): function handle for the observation model; expected signature h(state, input, noise, ...)
+            Q (numpy array [nq x nq]): process model noise covariance in the prediction step
+            R (numpy array [nr x nr]): observation model noise covariance in the update step
+            u (*): current input required for function f & possibly function h
+            y (numpy array [nu x 1]): current measurement/output of the system
+            Qu (numpy array [nqu x nqu]): input noise covariance in the prediction step
+            additional_args_pm (list): list of additional arguments to be passed to the process model during the prediction step
+            additional_args_om (list): list of additional arguments to be passed to the observation model during the update step
+            innovation_bound_func (dict): dictionary with innovation index as keys and callable function as value to bound
+                innovation when needed
+            predict_flag (bool): perform prediction? defaults to true
+
+        Returns:
+            X_fi (numpy array [n x 1]): fixed-interval list of smoothed expected values of the states with recent prediction & update
+            P_fi (numpy array [n x n]): fixed-interval list of smoothed covariance of the states with recent prediction & update
+            smoothed_flag (bool): whether estimate returned is filtered or smoothed estimate; filtered estimate is initially
+                returned until a lag_length worth of observations have been cumulated.
+
+        """
+        assert self.init_cond_set, "User must specify the initial condition separately"
+        nq = Q.shape[0]
+        if Qu is not None:
+            nqu = Qu.shape[0]
+        else:
+            nqu = 0
+            Qu = np.zeros((nqu, nqu))
+        nr = R.shape[0]
+        X1 = np.concatenate((self.X_aug, np.zeros((nq+nqu+nr, 1))), axis=0)
+        P1 = block_diag(self.P_aug, Q, Qu, R)
+
+        # generate cubature/sigma points and the weights based on the method (steps 2-4 of algorithm 5.1)
+        if self.method == 'UKF':
+            if self.order == 2:
+                x, L, W, WeightMat = self.sigmas2(X1, P1)
+            elif self.order == 4:
+                x, L, W, WeightMat = self.sigmas4(X1, P1)
+        elif self.method == 'CKF':
+            if self.order == 2:
+                x, L, W, WeightMat = self.cubature2(X1, P1)
+            elif self.order == 4:
+                x, L, W, WeightMat = self.cubature4(X1, P1)
+
+        if predict_flag:
+            iq = np.arange(self.na, self.na+nq)
+            iqu = np.arange(self.na+nq, self.na+nq+nqu)
+            self.X_aug, x, self.P_aug, x1 = self.unscented_transformF(
+                x, W, WeightMat, L, f, u, iq, iqu, additional_args_pm)
+
+        # update step (step 6 of algorithm 5.1) by implementing equations 5.36-5.41 (page 106)
+        if len(y):
+            # check if innovation keys is valid
+            for key in innovation_bound_func:
+                assert key in range(len(
+                    y)), "Key of innovation bound function dictionary should be within the length of the output"
+                assert callable(
+                    innovation_bound_func[key]), "Innovation bound function is not callable"
+
+            ip = np.arange(self.na+nq+nqu, self.na+nq+nqu+nr)
+            Z, _, Pz, z2 = self.unscented_transformH(
+                x, W, WeightMat, L, h, u, self.ia, ip, len(y), additional_args_om)
+            # transformed cross-covariance (equation 5.38)
+            Pxy = np.matmul(np.matmul(x1, WeightMat), z2.T)
+            # Kalman gain
+            K = np.matmul(Pxy, np.linalg.inv(Pz))
+            # state update (equation 5.40)
+            innovation = y - Z
+            for key in innovation_bound_func:
+                innovation[key, :] = innovation_bound_func[key](
+                    innovation[key, :])
+            self.X_aug += np.matmul(K, innovation)
+            # covariance update (equation 5.41)
+            self.P_aug -= np.matmul(K, Pxy.T)
+
+        return self.X_aug[self.n*self.lag_interval:, :], self.P_aug[self.n*self.lag_interval:, self.n*self.lag_interval:]
+
+    def unscented_transformF(self, x, W, WeightMat, L, f, u, iq, iqu, additional_args):
+        """
+        Function to propagate sigma/cubature points through process model function.
+
+        Args:
+            x (numpy array [n_a x L]): sigma/cubature points
+            W (numpy array [L x 1 or 1 x L]: 1D Weight array of the sigma/cubature points
+            WeightMat (numpy array [L x L]): weight matrix with weights in W of the points on the diagonal
+            L (int): number of points
+            f (function): function handle for the process model; expected signature f(state, input, noise, ...)
+            u (?): current input required for function f
+            iq (numpy array [n_q x 1]): row indices of the process noise in sigma/cubature points
+            iqu (numpy array [n_qu x 1]): row indices of the input noise in sigma/cubature points
+            additional_args (list): list of additional arguments to be passed to the process model
+
+        Returns:
+            Y (numpy array [n_s x 1]): Expected value vector of the result from transformation function f
+            y (numpy array [n_a x L]): Transformed sigma/cubature points
+            P (numpy array [n_s x n_s]): Covariance matrix of the result from transformation function f
+            y1 (numpy array [n_s x L]): zero-mean Transformed sigma/cubature points
+
+        """
+        ic = self.ib - self.n
+        Y = np.zeros((self.na, 1))
+        y = x
+        for k in range(L):
+            # delay by one time-step
+            y[self.ib, k] = x[ic, k]
+            # prediction step
+            if len(iqu):
+                y[self.ia, k] = f(x[self.ia, k], u, x[iq, k],
+                                  x[iqu, k], *additional_args)
+            else:
+                y[self.ia, k] = f(x[self.ia, k], u, x[iq, k],
+                                  np.zeros(u.shape), *additional_args)
+            # Calculating mean (equation 5.34)
+            Y += W.flat[k]*y[np.arange(self.na), k:k+1]
+
+        # Calculating covariance (equation 5.35)
+        y1 = y[np.arange(self.na), :] - Y
+        P = np.matmul(np.matmul(y1, WeightMat), y1.T)
+
+        return Y, y, P, y1
+
+
 def fit_data_rover_dynobj(dynamic_obj, vy=np.array([]), back_rotate=False):
     """
     Perform LS and NLS fitting parameters estimation for the rover dynamics (c1-c9) using dynamic object.
@@ -1317,6 +1482,8 @@ def test_pbgf_fixed_lag_smoothing_linear(n=10, m=5, nt=10, lag_interval=5):
     ## loop through and compare result from pbgf filter and fixed-lag smoother
     pbgf_filt = PointBasedFilter('CKF', 2)
     pbgf_smooth = PointBasedFixedLagSmoother('CKF', 2, lag_interval)
+    pbgf_smooth_aug = PointBasedFixedLagSmootherAugmented(
+        'CKF', 2, lag_interval)
 
     X_filt = x0.copy()
     X_smooth = x0.copy()
@@ -1324,8 +1491,9 @@ def test_pbgf_fixed_lag_smoothing_linear(n=10, m=5, nt=10, lag_interval=5):
     P_filt = P.copy()
     P_smooth = P.copy()
 
-    # set initial condition for smoother
+    # set initial condition for smoothers
     pbgf_smooth.set_initial_cond(X_smooth, P_smooth)
+    pbgf_smooth_aug.set_initial_cond(X_smooth, P_smooth)
 
     # pre-allocate array to store history of filtered and smoothed means
     X_filt_hist = np.zeros((X_filt.shape[0], nt))
@@ -1369,10 +1537,17 @@ def test_pbgf_fixed_lag_smoothing_linear(n=10, m=5, nt=10, lag_interval=5):
         dentropy_filt[i] = 0.5*n*(1.0 + np.log(2*math.pi)) + \
             0.5*np.log(np.linalg.det(P_filt))
 
+        # PBGF augmented smoother
+        X_smooth_aug, P_smooth_aug = pbgf_smooth_aug.predict_and_or_update(
+            process_model, observation_model, Q, R, np.array([]), outputs[:, i:i+1])
         # PBGF smoothing code
         X_smooth_fi, P_smooth_fi, smooth_flag = pbgf_smooth.predict_and_or_update(
             process_model, observation_model, Q, R, np.array([]), outputs[:, i:i+1])
         if smooth_flag and i - lag_interval >= 0:
+            assert np.allclose(
+                X_smooth_aug, X_smooth_fi[0]), "Backward pass smoother mean is not equivalent to that from augmented implementation"
+            assert np.allclose(
+                P_smooth_aug, P_smooth_fi[0]), "Backward pass smoother covariance is not equivalent to that from augmented implementation"
             X_smooth_hist[:, i-lag_interval:i -
                           lag_interval+1] = X_smooth_fi[0].copy()
             # calculate mse and differential entropy
