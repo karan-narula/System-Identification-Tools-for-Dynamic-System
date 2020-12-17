@@ -730,11 +730,11 @@ class FrontDriveFrontSteer(AbstractDyn):
         w = state[self.state_dict['w']]
 
         # avoid division by zero
-        if vy == 0.0 and vx == 0.0:
+        if np.isclose(vy, 0.0, atol=1e-6) and np.isclose(vx, 0.0, atol=1e-6):
             vy_by_vx = 0.0
         else:
             vy_by_vx = vy/vx
-        if w == 0.0 and vx == 0.0:
+        if np.isclose(w, 0.0, atol=1e-6) and np.isclose(vx, 0.0, atol=1e-6):
             w_by_vx = 0.0
         else:
             w_by_vx = w/vx
