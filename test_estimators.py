@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from car_dynamics import sample_linear, FrontSteered, RoverPartialDynEst, FrontDriveFrontSteerEst
-from estimators import kinematic_state_observer, PointBasedFilter, fit_data_rover, fit_data_rover_dynobj
+from estimators import kinematic_state_observer, PointBasedFilter, PointBasedFixedLagSmoother, fit_data_rover, fit_data_rover_dynobj
 
 
 def bind_npi_pi(angles):
@@ -289,6 +289,52 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2):
     return est_states, cov_states
 
 
+def create_smoothed_estimates(dynamic_obj, method='CKF', order=2, lag_interval=5):
+    """
+    Generate mean and covariance of smoothing distribution at various times for the problem defined by the dynamic object.
+
+    Args:
+        dynamic_obj (obj derived from AbstractDyn): dynamic object encapsulating source of information for the filter
+        method (str): The method for filtering algorithm, see estimators.py for the methods currently implemented; defaults to 'CKF'
+        order (int): Order of accuracy for integration rule, see estimators.py for orders currently implemented; defaults to 2
+        lag_interval (int): lag interval for producing smoothed estimate
+
+    Returns:
+        est_states (numpy array [dynamic_obj.num_states x nt]): filtered mean estimates of the states at different time instances
+        cov_states (numpy array [dynamic_obj.num_states x dynamic_obj.num_states x nt]): filtered covariance of the states
+            at different time instances
+
+    """
+    # create instance of the smoother
+    pbgf = PointBasedFixedLagSmoother(method, order, lag_interval)
+
+    if hasattr(dynamic_obj, 'innovation_bound_func'):
+        innovation_bound_func = dynamic_obj.innovation_bound_func
+    else:
+        innovation_bound_func = {}
+
+    # set initial condition for smoothers
+    pbgf.set_initial_cond(dynamic_obj.initial_cond, dynamic_obj.P0)
+
+    # smoothing loop
+    num_sol = len(dynamic_obj.T)
+    est_states = np.zeros((dynamic_obj.num_states, num_sol))
+    cov_states = np.zeros(
+        (dynamic_obj.num_states, dynamic_obj.num_states, num_sol))
+    for i in range(1, num_sol):
+        X_smooth_fi, P_smooth_fi, smooth_flag = pbgf.predict_and_or_update(dynamic_obj.process_model, dynamic_obj.observation_model, dynamic_obj.Q, dynamic_obj.R, dynamic_obj.U[:, i-1], dynamic_obj.outputs[:, i:i+1], additional_args_pm=[
+                                                                           sub[i-1] for sub in dynamic_obj.additional_args_pm_list], additional_args_om=[sub[i] for sub in dynamic_obj.additional_args_om_list], innovation_bound_func=innovation_bound_func)
+        if smooth_flag and i - lag_interval >= 0:
+            est_states[:, i-lag_interval:i - lag_interval+1] = X_smooth_fi[0]
+            cov_states[:, :, i-lag_interval] = P_smooth_fi[0]
+            if i == num_sol-1:
+                for k in range(1, len(X_smooth_fi)):
+                    est_states[:, i-lag_interval+k:i - lag_interval+k+1] = X_smooth_fi[k]
+                    cov_states[:, :, i-lag_interval+k] = P_smooth_fi[k]
+
+    return est_states, cov_states
+
+
 def test_fit_data_rover(param_dict, num_mc=100, back_rotate=False, **kwargs):
     """
     Test the function fit_data_rover for a specific configuration for a number of times. Generates various plots to
@@ -413,8 +459,14 @@ def test_pbgf(dyn_class, param_dict, max_inputs_list, **kwargs):
     dynamic_obj = simulate_data(
         dyn_class, param_dict, U, T, **kwargs)
 
-    # get filtered estimates
-    est_states = create_filtered_estimates(dynamic_obj, order=2)[0]
+    # get filtered or smoothed estimates
+    operation = kwargs.get('operation', 'filter')
+    assert operation in ['filter', 'smoother'], "Invalid estimation operation requested"
+    if operation == 'filter':
+        est_states = create_filtered_estimates(dynamic_obj, order=2)[0]
+    else:
+        lag_interval = kwargs.get('lag_interval', 5)
+        est_states = create_smoothed_estimates(dynamic_obj, order=2, lag_interval=lag_interval)[0]
 
     # plot the convergence of the parameters
     plot_stuff(dynamic_obj, est_states, angle_states=configuration.get(
@@ -484,6 +536,12 @@ if __name__ == '__main__':
     max_a = 20.0
     max_steering = 30.0*math.pi/180.0
     max_inputs_list = [max_a, max_steering]
+    test_pbgf(FrontDriveFrontSteerEst, param_dict,
+              max_inputs_list, **configuration)
+
+    # same as previous one but get results using smoother
+    configuration['operation'] = 'smoother'
+    configuration['lag_interval'] = int(math.ceil(20*2))
     test_pbgf(FrontDriveFrontSteerEst, param_dict,
               max_inputs_list, **configuration)
 
