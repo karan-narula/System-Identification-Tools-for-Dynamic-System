@@ -1592,7 +1592,7 @@ def test_pbgf_fixed_lag_smoothing_linear(n=10, m=5, nt=10, lag_interval=5):
         assert dentropy_smooth[i] <= dentropy_filt[i], "Smoothed entropy should be lower than filtered estimate"
 
     import matplotlib.pyplot as plt
-    plt.subplot(2,1,1)
+    plt.subplot(2, 1, 1)
     plt.plot(mse_filt, marker='o', label='filtered')
     plt.plot(mse_smooth, marker='o', label='smoothed')
     plt.legend()
@@ -1600,7 +1600,7 @@ def test_pbgf_fixed_lag_smoothing_linear(n=10, m=5, nt=10, lag_interval=5):
     plt.ylabel('MSE')
     plt.grid(True, 'both')
 
-    plt.subplot(2,1,2)
+    plt.subplot(2, 1, 2)
     plt.plot(nees_filt, marker='o', label='filtered')
     plt.plot(nees_smooth, marker='o', label='smoothed')
     plt.legend()

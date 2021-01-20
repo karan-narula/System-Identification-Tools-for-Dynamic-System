@@ -329,7 +329,8 @@ def create_smoothed_estimates(dynamic_obj, method='CKF', order=2, lag_interval=5
             cov_states[:, :, i-lag_interval] = P_smooth_fi[0]
             if i == num_sol-1:
                 for k in range(1, len(X_smooth_fi)):
-                    est_states[:, i-lag_interval+k:i - lag_interval+k+1] = X_smooth_fi[k]
+                    est_states[:, i-lag_interval+k:i -
+                               lag_interval+k+1] = X_smooth_fi[k]
                     cov_states[:, :, i-lag_interval+k] = P_smooth_fi[k]
 
     return est_states, cov_states
@@ -461,12 +462,14 @@ def test_pbgf(dyn_class, param_dict, max_inputs_list, **kwargs):
 
     # get filtered or smoothed estimates
     operation = kwargs.get('operation', 'filter')
-    assert operation in ['filter', 'smoother'], "Invalid estimation operation requested"
+    assert operation in [
+        'filter', 'smoother'], "Invalid estimation operation requested"
     if operation == 'filter':
         est_states = create_filtered_estimates(dynamic_obj, order=2)[0]
     else:
         lag_interval = kwargs.get('lag_interval', 5)
-        est_states = create_smoothed_estimates(dynamic_obj, order=2, lag_interval=lag_interval)[0]
+        est_states = create_smoothed_estimates(
+            dynamic_obj, order=2, lag_interval=lag_interval)[0]
 
     # plot the convergence of the parameters
     plot_stuff(dynamic_obj, est_states, angle_states=configuration.get(
