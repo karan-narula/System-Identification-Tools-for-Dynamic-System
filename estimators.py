@@ -640,7 +640,7 @@ class PointBasedFixedLagSmoother(PointBasedFilter):
     def predict_and_or_update(self, f, h, Q, R, u, y, u_next=None, Qu=None, additional_args_pm=[], additional_args_om=[], innovation_bound_func={}, predict_flag=True):
         """
         Perform one iteration of prediction and/or update + backward pass to produce smoothed estimate when applicable.
-        algorithm reference: Algorithm 5.1, page 104 of "Compressed Estimation in Coupled High-dimensional Processes"
+        algorithm reference: Algorithm 10.6, page 162 of "Bayesian Filtering and Smoothing"
 
         Args:
             f (function): function handle for the process model; expected signature f(state, input, model noise, input noise, ...)
