@@ -91,7 +91,7 @@ class PointBasedFilter(object):
         self.method = method
         self.order = order
 
-    def predict_and_or_update(self, X, P, f, h, Q, R, u, y, Qu=None, additional_args_pm=[], additional_args_om=[], innovation_bound_func={}, predict_flag=True):
+    def predict_and_or_update(self, X, P, f, h, Q, R, u, y, u_next=None, Qu=None, additional_args_pm=[], additional_args_om=[], innovation_bound_func={}, predict_flag=True):
         """
         Perform one iteration of prediction and/or update.
         algorithm reference: Algorithm 5.1, page 104 of "Compressed Estimation in Coupled High-dimensional Processes"
@@ -105,6 +105,7 @@ class PointBasedFilter(object):
             R (numpy array [nr x nr]): observation model noise covariance in the update step
             u (*): current input required for function f & possibly function h
             y (numpy array [nu x 1]): current measurement/output of the system
+            u_next (*): next input required for function h, defaults to None which will take values of u
             Qu (numpy array [nqu x nqu]): input noise covariance in the prediction step
             additional_args_pm (list): list of additional arguments to be passed to the process model during the prediction step
             additional_args_om (list): list of additional arguments to be passed to the observation model during the update step
@@ -128,6 +129,10 @@ class PointBasedFilter(object):
         nr = R.shape[0]
         X1 = np.concatenate((X, np.zeros((nq+nqu+nr, 1))), axis=0)
         P1 = block_diag(P, Q, Qu, R)
+
+        # if next input is not specified, take current one
+        if u_next is None:
+            u_next = u
 
         # generate cubature/sigma points and the weights based on the method (steps 2-4 of algorithm 5.1)
         if self.method == 'UKF':
@@ -160,7 +165,7 @@ class PointBasedFilter(object):
 
             ip = np.arange(n+nq+nqu, n+nq+nqu+nr)
             Z, _, Pz, z2 = self.unscented_transformH(
-                x, W, WeightMat, L, h, u, ia, ip, len(y), additional_args_om)
+                x, W, WeightMat, L, h, u_next, ia, ip, len(y), additional_args_om)
             # transformed cross-covariance (equation 5.38)
             Pxy = np.matmul(np.matmul(x1, WeightMat), z2.T)
             # Kalman gain
@@ -632,7 +637,7 @@ class PointBasedFixedLagSmoother(PointBasedFilter):
         self.filter_density.append((X.copy(), P.copy()))
         self.latest_action = 'update'
 
-    def predict_and_or_update(self, f, h, Q, R, u, y, Qu=None, additional_args_pm=[], additional_args_om=[], innovation_bound_func={}, predict_flag=True):
+    def predict_and_or_update(self, f, h, Q, R, u, y, u_next=None, Qu=None, additional_args_pm=[], additional_args_om=[], innovation_bound_func={}, predict_flag=True):
         """
         Perform one iteration of prediction and/or update + backward pass to produce smoothed estimate when applicable.
         algorithm reference: Algorithm 5.1, page 104 of "Compressed Estimation in Coupled High-dimensional Processes"
@@ -644,6 +649,7 @@ class PointBasedFixedLagSmoother(PointBasedFilter):
             R (numpy array [nr x nr]): observation model noise covariance in the update step
             u (*): current input required for function f & possibly function h
             y (numpy array [nu x 1]): current measurement/output of the system
+            u_next (*): next input required for function h, defaults to None which will take values of u
             Qu (numpy array [nqu x nqu]): input noise covariance in the prediction step
             additional_args_pm (list): list of additional arguments to be passed to the process model during the prediction step
             additional_args_om (list): list of additional arguments to be passed to the observation model during the update step
@@ -683,6 +689,10 @@ class PointBasedFixedLagSmoother(PointBasedFilter):
             X1 = np.concatenate(
                 (self.prevX, np.zeros((nq+nqu+nr, 1))), axis=0)
             P1 = block_diag(self.prevP, Q, Qu, R)
+
+        # if next input is not specified, take current one
+        if u_next is None:
+            u_next = u
 
         # generate cubature/sigma points and the weights based on the method (steps 2-4 of algorithm 5.1)
         if self.method == 'UKF':
@@ -744,7 +754,7 @@ class PointBasedFixedLagSmoother(PointBasedFilter):
 
             ip = np.arange(2*n+nq+nqu, 2*n+nq+nqu+nr)
             Z, _, Pz, z2 = self.unscented_transformH(
-                x, W, WeightMat, L, h, u, ib, ip, len(y), additional_args_om)
+                x, W, WeightMat, L, h, u_next, ib, ip, len(y), additional_args_om)
             # transformed cross-covariance (equation 5.38)
             Pxy = np.matmul(np.matmul(x1, WeightMat), z2.T)
             # Kalman gain

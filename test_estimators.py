@@ -283,7 +283,7 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2):
         (dynamic_obj.num_states, dynamic_obj.num_states, num_sol))
     cov_states[:, :, 0] = dynamic_obj.P0.copy()
     for i in range(1, num_sol):
-        est_states[:, i:i+1], cov_states[:, :, i] = pbgf.predict_and_or_update(est_states[:, i-1:i], cov_states[:, :, i-1], dynamic_obj.process_model, dynamic_obj.observation_model, dynamic_obj.Q, dynamic_obj.R, dynamic_obj.U[:, i-1], dynamic_obj.outputs[:, i:i+1], additional_args_pm=[
+        est_states[:, i:i+1], cov_states[:, :, i] = pbgf.predict_and_or_update(est_states[:, i-1:i], cov_states[:, :, i-1], dynamic_obj.process_model, dynamic_obj.observation_model, dynamic_obj.Q, dynamic_obj.R, dynamic_obj.U[:, i-1], dynamic_obj.outputs[:, i:i+1], dynamic_obj.U[:, i], additional_args_pm=[
                                                                                sub[i-1] for sub in dynamic_obj.additional_args_pm_list], additional_args_om=[sub[i] for sub in dynamic_obj.additional_args_om_list], innovation_bound_func=innovation_bound_func)
 
     return est_states, cov_states
@@ -322,7 +322,7 @@ def create_smoothed_estimates(dynamic_obj, method='CKF', order=2, lag_interval=5
     cov_states = np.zeros(
         (dynamic_obj.num_states, dynamic_obj.num_states, num_sol))
     for i in range(1, num_sol):
-        X_smooth_fi, P_smooth_fi, smooth_flag = pbgf.predict_and_or_update(dynamic_obj.process_model, dynamic_obj.observation_model, dynamic_obj.Q, dynamic_obj.R, dynamic_obj.U[:, i-1], dynamic_obj.outputs[:, i:i+1], additional_args_pm=[
+        X_smooth_fi, P_smooth_fi, smooth_flag = pbgf.predict_and_or_update(dynamic_obj.process_model, dynamic_obj.observation_model, dynamic_obj.Q, dynamic_obj.R, dynamic_obj.U[:, i-1], dynamic_obj.outputs[:, i:i+1], dynamic_obj.U[:, i], additional_args_pm=[
                                                                            sub[i-1] for sub in dynamic_obj.additional_args_pm_list], additional_args_om=[sub[i] for sub in dynamic_obj.additional_args_om_list], innovation_bound_func=innovation_bound_func)
         if smooth_flag and i - lag_interval >= 0:
             est_states[:, i-lag_interval:i - lag_interval+1] = X_smooth_fi[0]
