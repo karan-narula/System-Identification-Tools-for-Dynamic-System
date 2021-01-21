@@ -498,6 +498,36 @@ class RoverDyn(AbstractDyn):
 
         return np.array([[x_dot, y_dot, heading_dot, vx_dot]])
 
+    def additional_output_model(self, state, u, param_dict):
+        """
+        Specialisation of inherited method to provide lateral velocity.
+
+        Args:
+            state (numpy array [4 x 1]): current state of the system consisting of x, y, theta and vx
+            u (numpy array [2 x 1]): current input consisting of steering angle and commanded velocity
+            param_dict (dict): dictionary of current parameters needed for defining the dynamics
+
+        Returns:
+            output (numpy array [len(self.additional_output_keys) x 1): observed additional output
+
+        """
+        # get the inputs
+        steering_angle = u[0]
+
+        # get the states
+        vx = state[self.state_dict['vx']]
+
+        ang_rate = math.tan(param_dict['c1']*steering_angle + param_dict['c2'])*vx/(
+            param_dict['c3'] + param_dict['c4']*vx**2)
+        vy = ang_rate*(param_dict['c8'] + param_dict['c9']*vx**2)
+
+        # create output array
+        output = np.array([])
+        if 'vy' in self.additional_output_keys:
+            output = np.append(output, vy)
+
+        return output
+
 
 def partial_init(obj, class_type, expected_keys, est_params, param_dict, state_keys, state_dot_keys, simulate_gt, additional_output_keys=[]):
     """
