@@ -3,7 +3,7 @@ import numpy as np
 import abc
 from collections import Iterable
 
-from estimators import sample_nlds
+from SysIdTools.estimators import sample_nlds
 
 try:
     import torch

@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 from scipy.integrate import solve_ivp
 
-from estimators import PointBasedFilter, PointBasedFixedLagSmoother
+from SysIdTools.estimators import PointBasedFilter, PointBasedFixedLagSmoother
 import time
 import cProfile
 import pstats

@@ -1,12 +1,14 @@
+#!/usr/bin/env python
+
 from collections import OrderedDict as ODict
 
 import math
 import numpy as np
 import matplotlib.pyplot as plt
 
-from car_dynamics import sample_linear, FrontSteered, RoverPartialDynEst, FrontDriveFrontSteerEst, OneWheelFrictionEst
-from estimators import kinematic_state_observer, fit_data_rover, fit_data_rover_dynobj
-from utilities import create_dyn_obj, create_filtered_estimates, create_smoothed_estimates, plot_stuff, solve_ivp_dyn_obj
+from SysIdTools.car_dynamics import sample_linear, FrontSteered, RoverPartialDynEst, FrontDriveFrontSteerEst, OneWheelFrictionEst
+from SysIdTools.estimators import kinematic_state_observer, fit_data_rover, fit_data_rover_dynobj
+from SysIdTools.utilities import create_dyn_obj, create_filtered_estimates, create_smoothed_estimates, plot_stuff, solve_ivp_dyn_obj
 
 try:
     import torch

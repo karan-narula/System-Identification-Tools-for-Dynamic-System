@@ -1,7 +1,10 @@
+#!/usr/bin/env python
+
 from collections import OrderedDict as ODict
 from collections import Iterable
 
 import glob
+import pkg_resources
 
 import math
 import numpy as np
@@ -9,8 +12,8 @@ from scipy.io import loadmat
 from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
 
-from car_dynamics import RearDriveFrontSteerEst, RearDriveFrontSteerSubStateVelEst, cal_vxvy_from_coord
-from utilities import create_filtered_estimates, create_dyn_obj, plot_stuff
+from SysIdTools.car_dynamics import RearDriveFrontSteerEst, RearDriveFrontSteerSubStateVelEst, cal_vxvy_from_coord
+from SysIdTools.utilities import create_filtered_estimates, create_dyn_obj, plot_stuff
 
 
 def fit_and_plot(A_list, B, all_params, model_tag, axs, t_vec, ys, est_params=['sl_r', 'sl_f', 'sc_r', 'sc_f', 'fr'], ylabels=['vx dot', 'vy dot', 'yaw rate dot']):
@@ -670,8 +673,8 @@ if __name__ == '__main__':
     order = 2
 
     # get a list of matlab files in the folder
-    folder_name = './matlab_sim_data/'
-    mat_files = glob.glob(folder_name + '*.mat')
+    folder_name = pkg_resources.resource_filename('SysIdTools', 'matlab_sim_data')
+    mat_files = glob.glob(folder_name + '/*.mat')
 
     # parameter dictionary based on single matlab file
     data = loadmat(mat_files[0])
