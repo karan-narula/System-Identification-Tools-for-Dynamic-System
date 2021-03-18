@@ -665,6 +665,150 @@ class RoverPartialDynEst(RoverDyn):
         return partial_dxdt(self, RoverPartialDynEst, state, u, param_dict)
 
 
+class OneWheelFriction(AbstractDyn):
+    """
+    Class derived from AbstractDyn class
+    model from: "Application of Extended Kalman Filter for Road Condition Estimation" paper
+    inputs = [wheel torque]
+    states = [v, w, z]
+
+    The assumptions of this model are:
+    (i) velocity is longitudinal only, i.e. no lateral component
+    (ii) Tire model taken LuGre dynamic model with steady-state error compensation
+
+    The model parameters are:
+        sigma_0: rubber longitudinal lumped stiffness (1/m)
+        sigma_1: rubber longitudinal lumped damping (s/m)
+        sigma_2: viscous relative damping (Ns/m)
+        sigma_w: coefficient of viscous friction (Nm/s)
+        L: contact patch length (m)
+        mu_c: normalised Coulomb friction
+        mu_s: normalised static friction
+        vs: Stribeck relative velocity (m/s)
+        theta: road condition coefficient
+        r: wheel radius
+        m: wheel mass (kg)
+        J: moment of inertia of the wheel (kgm^2)
+        k: lumped model constant (usually between 1.2 and 1.4)
+        Fn: normal force
+
+    Args:
+        param_dict (dict): dictionary of parameters needed for defining the dynamics
+        state_keys (list): list of states string that are observed by sensor
+        state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
+        additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
+
+    """
+    # state dictionary for this model
+    global_state_dict = {'v': 0, 'w': 1, 'z': 2}
+    # expected keys/parameters of this model
+    global_expected_keys = ["sigma_0", "sigma_1", "sigma_2", "sigma_w",
+                            "L", "mu_c", "mu_s", "vs", "theta", "r", "m", "J", "k", "Fn"]
+
+    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[]):
+        super(OneWheelFriction, self).__init__(param_dict, state_keys=state_keys,
+                                               state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys)
+        # specify expected dimensionality of input
+        self.num_in = 1
+
+    def dxdt(self, state, u, param_dict):
+        """
+        Obtain derivative of the state based on current state and input
+
+        Args:
+            state(numpy array[3 x 1]): current state of the system consisting of v, w and z
+            u(numpy array[1 x 1]): current input consisting of torque acting on wheel axis
+            param_dict(dict): dictionary of current parameters needed for defining the dynamics
+
+        Returns:
+            state_dot(numpy array[3 x 1]): derivative of the states
+
+        """
+        # get the parameters
+        mu_c = param_dict['mu_c']
+        mu_s = param_dict['mu_s']
+        vs = param_dict['vs']
+        Fn = param_dict['Fn']
+        m = param_dict['m']
+        sigma_0 = param_dict['sigma_0']
+        sigma_1 = param_dict['sigma_1']
+        sigma_2 = param_dict['sigma_2']
+        sigma_w = param_dict['sigma_w']
+        r = param_dict['r']
+        theta = param_dict['theta']
+        k = param_dict['k']
+        L = param_dict['L']
+        J = param_dict['J']
+
+        # get the inputs
+        if isinstance(u, Iterable):
+            ur = u[0]
+        else:
+            ur = u
+
+        # get the states
+        v = state[self.state_dict['v']]
+        z = state[self.state_dict['z']]
+        w = state[self.state_dict['w']]
+
+        # define function
+        def gvr(vr):
+            return mu_c + (mu_s - mu_c)*math.exp(-math.sqrt(math.fabs(vr/vs)))
+
+        # calculate the state derivatives
+        vr = r*w - v
+        zdot = vr - z*(theta*sigma_0*math.fabs(vr) /
+                       gvr(vr) + k*r*math.fabs(w)/L)
+        vdot = Fn/m*(sigma_0*z + sigma_1*zdot + sigma_2*vr)
+        wdot = (-r*Fn*(sigma_0*z + sigma_1*zdot) - sigma_w*w + ur)/J
+
+        return np.array([[vdot, wdot, zdot]])
+
+
+class OneWheelFrictionEst(OneWheelFriction):
+    """
+    Class derived from OneWheelFriction class
+    model from: same as OneWheelFriction but some parameters are the states themselves to be estimated online
+    inputs = [wheel torque]
+    states = [v, w, z, ...]
+
+    Args:
+        param_dict (dict): dictionary of parameters needed for defining the dynamics
+        est_params (list): list of parameter strings to be estimated with the states
+        state_keys (list): list of states string that are observed by sensor
+        state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
+        simulate_gt (bool): specify whether model is during the stage of simulating ground truth
+        additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
+
+    """
+
+    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False, additional_output_keys=[]):
+        partial_init(self, OneWheelFrictionEst, est_params, param_dict,
+                     state_keys, simulate_gt, state_dot_keys, additional_output_keys)
+
+    def re_initialise(self):
+        """
+        re-initialise after ground truth data has been generated using its parent's derivative and raw possibly time-varying parameters
+        """
+        re_initialise(self)
+
+    def dxdt(self, state, u, param_dict):
+        """
+        Obtain derivative of the state based on current state and input similar to OneWheelFriction. Derivatives of
+        estimated parameters are zero, i.e. assuming they are constant and not drifting over time.
+
+        Args:
+            state (numpy array [3+len(self.est_params) x 1]): current state of the system consisting of v, w, z and estimated parameters
+            u (numpy array [1 x 1]): current input consisting of torque acting on wheel axis
+            param_dict (dict): dictionary of current non-estimated parameters needed for defining the dynamics
+
+        Returns:
+            state_dot (numpy array [3+len(self.est_params) x 1]): derivative of the states
+
+        """
+        return partial_dxdt(self, OneWheelFrictionEst, state, u, param_dict)
+
+
 class FrontDriveFrontSteer(AbstractDyn):
     """
     Class derived from AbstractDyn class
