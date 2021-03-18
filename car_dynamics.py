@@ -44,7 +44,6 @@ class AbstractDyn(object):
 
     Args:
         param_dict (dict): dictionary of parameters needed for defining the dynamics
-        expected_keys (list): list of parameters string that are expected to be present in the param_dict; defaults to empty
         state_keys (list): list of states string that are observed by sensor; defaults to empty
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
         additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
@@ -52,12 +51,12 @@ class AbstractDyn(object):
     """
     __metaclass__ = abc.ABCMeta
 
-    def __init__(self, param_dict, expected_keys=[], state_keys=[], state_dot_keys=[], additional_output_keys=[]):
+    def __init__(self, param_dict, state_keys=[], state_dot_keys=[], additional_output_keys=[]):
         # store the parameter dictionary for the vehicle dynamics
         self.param_dict = param_dict.copy()
 
         # store expected keys of param dictionary
-        self.expected_keys = expected_keys
+        self.expected_keys = self.global_expected_keys.copy()
 
         # copy state dict from global
         self.state_dict = self.global_state_dict.copy()
@@ -305,13 +304,12 @@ class FrontSteered(AbstractDyn):
     # state dictionary for this model
     global_state_dict = {'x': 0, 'y': 1,
                          'theta': 2, 'vx': 3, 'vy': 4, 'omega': 5}
+    # expected keys/parameters of this model
+    global_expected_keys = ["mass", "lr", "lf",
+                            "e_wr", "cxf", "cxr", "cyf", "cyr", "iz"]
 
     def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[]):
-        # expected parameter keys
-        expected_keys = ["mass", "lr", "lf",
-                         "e_wr", "cxf", "cxr", "cyf", "cyr", "iz"]
-
-        super(FrontSteered, self).__init__(param_dict, expected_keys=expected_keys, state_keys=state_keys,
+        super(FrontSteered, self).__init__(param_dict, state_keys=state_keys,
                                            state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys)
 
         # dimensionality of input
@@ -445,20 +443,17 @@ class RoverDyn(AbstractDyn):
         param_dict (dict): dictionary of parameters needed for defining the dynamics
         state_keys (list): list of states string that are observed by sensor
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
-        expected_keys (list): list of parameters string that are expected to be present in the param_dict; defaults to None
-            when None is specified, the parameters are assumed to be c1-c9
         additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
 
     """
     # state dictionary for this model
     global_state_dict = {'x': 0, 'y': 1, 'theta': 2, 'vx': 3}
+    # expected keys/parameters of this model
+    global_expected_keys = ["c1", "c2", "c3",
+                            "c4", "c5", "c6", "c7", "c8", "c9"]
 
-    def __init__(self, param_dict, state_keys, state_dot_keys=[], expected_keys=None, additional_output_keys=[]):
-        # expected parameter keys
-        if expected_keys is None:
-            expected_keys = ["c1", "c2", "c3",
-                             "c4", "c5", "c6", "c7", "c8", "c9"]
-        super(RoverDyn, self).__init__(param_dict, expected_keys=expected_keys, state_keys=state_keys,
+    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[]):
+        super(RoverDyn, self).__init__(param_dict, state_keys=state_keys,
                                        state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys)
 
         # specify expected dimensionality of input
@@ -529,19 +524,18 @@ class RoverDyn(AbstractDyn):
         return output
 
 
-def partial_init(obj, class_type, expected_keys, est_params, param_dict, state_keys, state_dot_keys, simulate_gt, additional_output_keys=[]):
+def partial_init(obj, class_type, est_params, param_dict, state_keys, simulate_gt, state_dot_keys=[], additional_output_keys=[]):
     """
     Function to help initialise an Estimate class deriving from the dynamic class.
 
     Args:
         obj (Est obj): object in which the initialisation is being performed (self)
         class_type (obj type): pass in the class of the object to be used when invoking super
-        expected_keys (list): list of all parameters string that are expected to be present in the param_dict
         est_params (list): list of parameter strings to be estimated with the states
         param_dict (dict): dictionary of parameters needed for defining the dynamics
         state_keys (list): list of states string that are observed by sensor
-        state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
         simulate_gt (bool): specify whether model is during the stage of simulating ground truth
+        state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
         additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
 
     """
@@ -549,23 +543,23 @@ def partial_init(obj, class_type, expected_keys, est_params, param_dict, state_k
     obj.simulate_gt = simulate_gt
 
     if obj.simulate_gt:
-        super(class_type, obj).__init__(param_dict, state_keys, state_dot_keys=state_dot_keys,
-                                        expected_keys=expected_keys, additional_output_keys=additional_output_keys)
+        super(class_type, obj).__init__(param_dict, state_keys,
+                                        state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys)
     else:
-        # check if est_params are in expected keys
-        for est_param in est_params:
-            assert est_param in expected_keys, "Parameter {} to be estimated is not in expected keys".format(
-                est_param)
-            expected_keys.remove(est_param)
-
         # remove parameters to be estimated from dictionary
         pruned_param_dict = param_dict.copy()
         for est_param in est_params:
             if est_param in pruned_param_dict:
                 del pruned_param_dict[est_param]
 
-        super(class_type, obj).__init__(pruned_param_dict, state_keys, state_dot_keys=state_dot_keys,
-                                        expected_keys=expected_keys, additional_output_keys=additional_output_keys)
+        super(class_type, obj).__init__(pruned_param_dict, state_keys,
+                                        state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys)
+
+        # check if est_params are in expected keys
+        for est_param in est_params:
+            assert est_param in obj.global_expected_keys, "Parameter {} to be estimated is not in expected keys".format(
+                est_param)
+            obj.expected_keys.remove(est_param)
 
     # append state dictionary
     for i, est_param in enumerate(est_params):
@@ -591,7 +585,7 @@ def re_initialise(obj):
 
         # check if est_params are in expected keys
         for est_param in obj.est_params:
-            assert est_param in obj.expected_keys, "Parameter {} to be estimated is not in expected keys".format(
+            assert est_param in obj.global_expected_keys, "Parameter {} to be estimated is not in expected keys".format(
                 est_param)
             obj.expected_keys.remove(est_param)
 
@@ -644,10 +638,8 @@ class RoverPartialDynEst(RoverDyn):
     """
 
     def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False, additional_output_keys=[]):
-        expected_keys = ["c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"]
-
-        partial_init(self, RoverPartialDynEst, expected_keys, est_params, param_dict,
-                     state_keys, state_dot_keys, simulate_gt, additional_output_keys)
+        partial_init(self, RoverPartialDynEst, est_params, param_dict,
+                     state_keys, simulate_gt, state_dot_keys, additional_output_keys)
 
     def re_initialise(self):
         """
@@ -713,21 +705,18 @@ class FrontDriveFrontSteer(AbstractDyn):
         param_dict (dict): dictionary of parameters needed for defining the dynamics
         state_keys (list): list of states string that are observed by sensor
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
-        expected_keys (list): list of parameters string that are expected to be present in the param_dict; defaults to None
-            when None is specified, the parameters are assumed to be fx, cf, cr, lf, lr, m, iz, rc, fr and g.
         additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
 
     """
     # state dictionary for this model
     global_state_dict = {'x': 0, 'y': 1, 'theta': 2, 'vx': 3, 'vy': 4, 'w': 5}
+    # expected keys/parameters of this model
+    global_expected_keys = ["fx", "cf", "cr",
+                            "lf", "lr", "m", "iz", "rc", "fr", "g"]
 
-    def __init__(self, param_dict, state_keys, state_dot_keys=[], expected_keys=None, additional_output_keys=[]):
-        # expected parameter keys
-        if expected_keys is None:
-            expected_keys = ["fx", "cf", "cr",
-                             "lf", "lr", "m", "iz", "rc", "fr", "g"]
-        super(FrontDriveFrontSteer, self).__init__(param_dict, expected_keys=expected_keys,
-                                                   state_keys=state_keys, state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys)
+    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[]):
+        super(FrontDriveFrontSteer, self).__init__(param_dict, state_keys=state_keys,
+                                                   state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys)
 
         # specify expected dimensionality of input
         self.num_in = 2
@@ -809,11 +798,8 @@ class FrontDriveFrontSteerEst(FrontDriveFrontSteer):
     """
 
     def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False, additional_output_keys=[]):
-        expected_keys = ["fx", "cf", "cr", "lf",
-                         "lr", "m", "iz", "rc", "fr", "g"]
-
-        partial_init(self, FrontDriveFrontSteerEst, expected_keys, est_params,
-                     param_dict, state_keys, state_dot_keys, simulate_gt, additional_output_keys)
+        partial_init(self, FrontDriveFrontSteerEst, est_params, param_dict,
+                     state_keys, simulate_gt, state_dot_keys, additional_output_keys)
 
     def re_initialise(self):
         """
@@ -873,21 +859,18 @@ class RearDriveFrontSteer(AbstractDyn):
         param_dict (dict): dictionary of parameters needed for defining the dynamics
         state_keys (list): list of states string that are observed by sensor
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
-        expected_keys (list): list of parameters string that are expected to be present in the param_dict; defaults to None
-            when None is specified, the parameters are assumed to be the ones listed above.
         additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
 
     """
     # state dictionary for this model
     global_state_dict = {'x': 0, 'y': 1, 'theta': 2, 'vx': 3, 'vy': 4, 'w': 5}
+    # expected keys/parameters of this model
+    global_expected_keys = ["m", "iz", "lf", "lr", "ref", "rer",
+                            "fr", "g", "sc_f", "sc_r", "sl_f", "sl_r", "af", "rho", "cd"]
 
-    def __init__(self, param_dict, state_keys, state_dot_keys=[], expected_keys=None, additional_output_keys=[]):
-        # expected parameter keys
-        if expected_keys is None:
-            expected_keys = ["m", "iz", "lf", "lr", "ref", "rer", "fr",
-                             "g", "sc_f", "sc_r", "sl_f", "sl_r", "af", "rho", "cd"]
-        super(RearDriveFrontSteer, self).__init__(param_dict, expected_keys=expected_keys,
-                                                  state_keys=state_keys, state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys)
+    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[]):
+        super(RearDriveFrontSteer, self).__init__(param_dict, state_keys=state_keys,
+                                                  state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys)
         # specify expected dimensionality of input
         self.num_in = 3
 
@@ -1045,11 +1028,8 @@ class RearDriveFrontSteerEst(RearDriveFrontSteer):
     """
 
     def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False, additional_output_keys=[]):
-        expected_keys = ["m", "iz", "lf", "lr", "ref", "rer", "fr",
-                         "g", "sc_f", "sc_r", "sl_f", "sl_r", "af", "rho", "cd"]
-
-        partial_init(self, RearDriveFrontSteerEst, expected_keys, est_params,
-                     param_dict, state_keys, state_dot_keys, simulate_gt, additional_output_keys)
+        partial_init(self, RearDriveFrontSteerEst, est_params, param_dict,
+                     state_keys, simulate_gt, state_dot_keys, additional_output_keys)
 
     def re_initialise(self):
         """
@@ -1079,28 +1059,25 @@ class RearDriveFrontSteerSubStateVel(AbstractDyn):
     """
     Class with the same dynamics & parameters as RearDriveFrontSteer but considers only subset of states
     model from: Modeling discussion presentation
-    inputs = [front wheel speed, rear wheel speed, front wheel angle (steering angle), yaw rate]
+    inputs = [front wheel speed, rear wheel speed, front wheel angle(steering angle), yaw rate]
     states = [vx, vy, ax, ay]
 
     Args:
         param_dict (dict): dictionary of parameters needed for defining the dynamics
         state_keys (list): list of states string that are observed by sensor
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
-        expected_keys (list): list of parameters string that are expected to be present in the param_dict; defaults to None
-            when None is specified, the parameters are assumed to be the ones listed above.
         additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
 
     """
     # state dictionary for this model
     global_state_dict = {'vx': 0, 'vy': 1, 'ax': 2, 'ay': 3}
+    # expected keys/parameters of this model
+    global_expected_keys = ["m", "iz", "lf", "lr", "ref",
+                            "rer", "fr", "g", "sc_f", "sc_r", "sl_f", "sl_r", "da"]
 
-    def __init__(self, param_dict, state_keys, state_dot_keys=[], expected_keys=None, additional_output_keys=[]):
-        # expected parameter keys
-        if expected_keys is None:
-            expected_keys = ["m", "iz", "lf", "lr", "ref", "rer", "fr",
-                             "g", "sc_f", "sc_r", "sl_f", "sl_r", "da"]
-        super(RearDriveFrontSteerSubStateVel, self).__init__(param_dict, expected_keys=expected_keys,
-                                                             state_keys=state_keys, state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys)
+    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[]):
+        super(RearDriveFrontSteerSubStateVel, self).__init__(param_dict, state_keys=state_keys,
+                                                             state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys)
         # specify expected dimensionality of input
         self.num_in = 4
 
@@ -1260,11 +1237,8 @@ class RearDriveFrontSteerSubStateVelEst(RearDriveFrontSteerSubStateVel):
     """
 
     def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False, additional_output_keys=[]):
-        expected_keys = ["m", "iz", "lf", "lr", "ref", "rer", "fr",
-                         "g", "sc_f", "sc_r", "sl_f", "sl_r", "da"]
-
-        partial_init(self, RearDriveFrontSteerSubStateVelEst, expected_keys, est_params,
-                     param_dict, state_keys, state_dot_keys, simulate_gt, additional_output_keys)
+        partial_init(self, RearDriveFrontSteerSubStateVelEst, est_params, param_dict,
+                     state_keys, simulate_gt, state_dot_keys, additional_output_keys)
 
     def re_initialise(self):
         """
