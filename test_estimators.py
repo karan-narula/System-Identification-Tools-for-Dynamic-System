@@ -4,7 +4,7 @@ import math
 import numpy as np
 import matplotlib.pyplot as plt
 
-from car_dynamics import sample_linear, FrontSteered, RoverPartialDynEst, FrontDriveFrontSteerEst
+from car_dynamics import sample_linear, FrontSteered, RoverPartialDynEst, FrontDriveFrontSteerEst, OneWheelFrictionEst
 from estimators import kinematic_state_observer, fit_data_rover, fit_data_rover_dynobj
 from utilities import create_dyn_obj, create_filtered_estimates, create_smoothed_estimates, plot_stuff, solve_ivp_dyn_obj
 
@@ -253,6 +253,28 @@ if __name__ == '__main__':
     test_pbgf(FrontDriveFrontSteerEst, param_dict,
               input_vars=input_vars, **configuration)
 
+    # test pbgf for the one wheel friction model with sudden change in road condition coefficient (parameters from EKF paper)
+    param_dict = ODict([('sigma_0', 40.0), ('sigma_1', 4.9487), ('sigma_2', 0.0018), ('sigma_w', 0.0), ('L', 0.25), ('mu_c', 0.5),
+                        ('mu_s', 0.9), ('vs', 12.5), ('r', 0.25), ('m', 5.0), ('J', 0.2344), ('Fn', 14.0), ('k', 1.1), ('theta', [1.0, 2.0])])
+    configuration = {}
+    configuration = {'seed': 0,
+                     'output_keys': ['w'],
+                     'est_params': ['theta'],
+                     'init_param_cov': 1e-2,
+                     'std_w': 1e-4,
+                     'std_v': 1e-4,
+                     'std_z': 1e-4,
+                     'std_w_out': 3.0*math.pi/180.0,
+                     'time_varying_q': 1e-4,
+                     'angle_states': []}
+    max_torque = 5.0
+    timing_vars = {'dt': 0.0005, 'tf': 30}
+    input_vars = {'sample_linear_flag': True, 'max_inputs_list': [max_torque]}
+    ode_vars = {'T': np.arange(
+        0.0, timing_vars['tf'], 0.1), 'plot_result': True, 'plot_euler_result': True, 'num_rows': 1}
+
+    test_pbgf(OneWheelFrictionEst, param_dict, timing_vars=timing_vars,
+              input_vars=input_vars, ode_vars=ode_vars, **configuration)
 """
 Testing kinematic observer (Not working yet!)
 
