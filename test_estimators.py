@@ -112,26 +112,32 @@ def test_fit_data_rover(param_dict, num_mc=100, back_rotate=False, **kwargs):
     plt.show()
 
 
-def test_pbgf(dyn_class, param_dict, max_inputs_list, **kwargs):
+def test_pbgf(dyn_class, param_dict, timing_vars={}, input_vars={}, **kwargs):
     """
     Test the PBGF in estimating the parameters and states.
 
     Args:
         dyn_class (class of type inherited from AbstractDyn): type to create dynamic object
         param_dict (dict): dictionary of parameters needed for defining the dynamics
-        max_inputs_list (list): list of maximum inputs for generating inputs for the dynamic model
+        timing_vars (dict): dictionary of parameters related to time such as duration of the simulation and dt
+        input_vars (dict): dictionary of parameters related to input
         kwargs: dictionary of variable length for additional parameters for the create_dyn_obj function;
             see create_dyn_obj for more details
 
     """
     # timing variables
-    dt = 0.05
-    tf = 20.0
+    dt = timing_vars.get('dt', 0.05)
+    tf = timing_vars.get('tf', 20.0)
     T = np.arange(0.0, tf, dt)
 
-    # create input vector for rover model
-    cruise_time = 5.0
-    U = sample_linear(T, cruise_time, *max_inputs_list)
+    # create input vector from input variables
+    sample_linear_flag = input_vars.get('sample_linear_flag', False)
+    if sample_linear_flag:
+        cruise_time = input_vars.get('cruise_time', 5.0)
+        max_inputs_list = input_vars.get('max_inputs_list', [])
+        U = sample_linear(T, cruise_time, *max_inputs_list)
+    else:
+        U = input_vars.get('U', np.array([]))
 
     kwargs['U'] = U
     kwargs['T'] = T
@@ -185,8 +191,11 @@ if __name__ == '__main__':
                      'init_param_cov': 1.0,
                      'std_x_out': 0.10,
                      'std_y_out': 0.10}
+    input_vars = {'sample_linear_flag': True,
+                  'max_inputs_list': max_inputs_list}
 
-    test_pbgf(RoverPartialDynEst, param_dict, max_inputs_list, **configuration)
+    test_pbgf(RoverPartialDynEst, param_dict,
+              input_vars=input_vars, **configuration)
 
     # test pbgf for FrontDriveFrontSteer
     param_dict = ODict([('fx', 15), ('cf', 0.75), ('cr', 0.75), ('lf', 0.8),
@@ -201,9 +210,11 @@ if __name__ == '__main__':
                      'std_theta_dot_out': math.pi/180.0}
     max_a = 20.0
     max_steering = 30.0*math.pi/180.0
-    max_inputs_list = [max_a, max_steering]
+    input_vars = {'sample_linear_flag': True,
+                  'max_inputs_list': [max_a, max_steering]}
+
     test_pbgf(FrontDriveFrontSteerEst, param_dict,
-              max_inputs_list, **configuration)
+              input_vars=input_vars, **configuration)
 
     # test pbgf for FrontDriveFrontSteer with sudden change in fr
     param_dict = ODict([('fx', 15), ('cf', 0.75), ('cr', [0.75, 1.0]), ('lf', 0.8),
@@ -222,15 +233,17 @@ if __name__ == '__main__':
                      'angle_states': ['theta', 'w']}
     max_a = 20.0
     max_steering = 30.0*math.pi/180.0
-    max_inputs_list = [max_a, max_steering]
+    input_vars = {'sample_linear_flag': True,
+                  'max_inputs_list': [max_a, max_steering]}
+
     test_pbgf(FrontDriveFrontSteerEst, param_dict,
-              max_inputs_list, **configuration)
+              input_vars=input_vars, **configuration)
 
     # same as previous one but get results using smoother
     configuration['operation'] = 'smoother'
     configuration['lag_interval'] = int(math.ceil(20*2))
     test_pbgf(FrontDriveFrontSteerEst, param_dict,
-              max_inputs_list, **configuration)
+              input_vars=input_vars, **configuration)
 
 """
 Testing kinematic observer (Not working yet!)
