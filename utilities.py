@@ -4,6 +4,8 @@ import numpy as np
 import math
 import matplotlib.pyplot as plt
 
+from scipy.integrate import solve_ivp
+
 from estimators import PointBasedFilter, PointBasedFixedLagSmoother
 
 
@@ -202,6 +204,95 @@ def create_dyn_obj(dyn_class, param_dict, simulate_gt=False, real_output=True, r
                                 i] += ((-1)**add_or_subtract)*number_of_pis*math.pi
 
     return dynamic_obj
+
+
+def solve_ivp_dyn_obj(dynamic_obj, T=None, U=None, plot_result=False, plot_euler_result=False, num_rows=3,  method='RK45'):
+    """
+    Useful function to instead solve the first-order differential equation using generic solver and compare against first order Euler
+
+    Args:
+        dynamic_obj (any inherited AbstractDyn obj): dynamic object
+        T (numpy array [nt x 1 or 1 x nt]): time array to evaluate the states at; defaults to None (read from dynamic object)
+        U (numpy array [nu x nt]): input array required for the first-order differential equation; defaults to None (read
+            from dynamic object)
+        plot_result (bool): whether to plot the result or not; defaults to False
+        plot_euler_result (bool): whether to plot the euluer result encapsulated in the dynamic object or not
+        num_rows (int): number of rows of subplots in the figure
+        method (string): method of solver to pick and use for the differential equation
+
+    """
+    # retrieve time and input if user specified otherwise get from dynamic object
+    taken_T_from_dyn_obj = False
+    if isinstance(T, Iterable):
+        if len(T) == 0:
+            T = dynamic_obj.T
+        taken_T_from_dyn_obj = True
+    if isinstance(U, Iterable):
+        if len(U) == 0:
+            U = dynamic_obj.U
+    if T is None:
+        T = dynamic_obj.T
+        taken_T_from_dyn_obj = True
+    if U is None:
+        U = dynamic_obj.U
+    assert np.array(T.shape).max() == np.array(U.shape).max(
+    ), "Time and input matrices should be of the same length"
+
+    # create time span based on stored time instances
+    t_span = [T[0], T[-1]]
+
+    def dxdt(t, z):
+        # interpolate inputs
+        u = np.zeros(dynamic_obj.num_in)
+        for i in range(dynamic_obj.num_in):
+            u[i] = np.interp(t, T, U[i, :])
+
+        # find param dict at this time instant
+        index = np.abs(t - dynamic_obj.T).argmin()
+        param_dict = dynamic_obj.param_list[index]
+
+        return dynamic_obj.dxdt(z, u, param_dict).flatten()
+
+    ivp_result = solve_ivp(
+        dxdt, t_span, dynamic_obj.initial_cond.flatten(), method=method, t_eval=T)
+
+    # re-initialise dynamic object if still in simulated gt
+    if dynamic_obj.simulate_gt:
+        dynamic_obj.re_initialise()
+
+    # plot the results if user requested it
+    if plot_result or plot_euler_result:
+        # calculate number of columns for subplots
+        num_subplots = len(dynamic_obj.global_state_dict.keys())
+        if num_subplots < num_rows:
+            num_rows = num_subplots
+        num_cols = int(math.ceil(num_subplots/float(num_rows)))
+
+        # plot the states
+        plt.figure(1)
+        for i, key in enumerate(dynamic_obj.global_state_dict):
+            # subplot
+            plt.subplot(num_rows, num_cols, i+1)
+
+            index = dynamic_obj.global_state_dict[key]
+            # plot the gt states from first-order Euler
+            if plot_euler_result:
+                plt.plot(
+                    dynamic_obj.T, dynamic_obj.gt_states[index, :], label='first order Euler', linestyle='--')
+
+            # plot the states from solver
+            if plot_result:
+                plt.plot(T, ivp_result.y[index], label=method)
+
+            # legend and labels
+            plt.legend()
+            plt.xlabel("Time (seconds")
+            plt.ylabel(key)
+            plt.grid(True, "both")
+
+        plt.show()
+
+    return ivp_result
 
 
 def create_filtered_estimates(dynamic_obj, method='CKF', order=2):
