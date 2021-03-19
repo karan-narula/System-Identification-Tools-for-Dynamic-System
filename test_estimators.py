@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 from car_dynamics import sample_linear, FrontSteered, RoverPartialDynEst, FrontDriveFrontSteerEst
 from estimators import kinematic_state_observer, fit_data_rover, fit_data_rover_dynobj
-from utilities import create_dyn_obj, create_filtered_estimates, create_smoothed_estimates, plot_stuff
+from utilities import create_dyn_obj, create_filtered_estimates, create_smoothed_estimates, plot_stuff, solve_ivp_dyn_obj
 
 
 def test_fit_data_rover(param_dict, num_mc=100, back_rotate=False, **kwargs):
@@ -112,7 +112,7 @@ def test_fit_data_rover(param_dict, num_mc=100, back_rotate=False, **kwargs):
     plt.show()
 
 
-def test_pbgf(dyn_class, param_dict, timing_vars={}, input_vars={}, **kwargs):
+def test_pbgf(dyn_class, param_dict, timing_vars={}, input_vars={}, ode_vars={}, **kwargs):
     """
     Test the PBGF in estimating the parameters and states.
 
@@ -121,6 +121,7 @@ def test_pbgf(dyn_class, param_dict, timing_vars={}, input_vars={}, **kwargs):
         param_dict (dict): dictionary of parameters needed for defining the dynamics
         timing_vars (dict): dictionary of parameters related to time such as duration of the simulation and dt
         input_vars (dict): dictionary of parameters related to input
+        ode_vars (dict): dictionary of parameters required by the ode solver for the vehicle dynamics
         kwargs: dictionary of variable length for additional parameters for the create_dyn_obj function;
             see create_dyn_obj for more details
 
@@ -148,7 +149,14 @@ def test_pbgf(dyn_class, param_dict, timing_vars={}, input_vars={}, **kwargs):
 
     # get data
     dynamic_obj = create_dyn_obj(
-        dyn_class, param_dict, simulate_gt=True, real_output=False, **kwargs)
+        dyn_class, param_dict, simulate_gt=True, real_output=False, re_initialise=len(ode_vars) == 0, **kwargs)
+
+    # optionally, use ode solver for the dynamic system and compare the results
+    if len(ode_vars):
+        if 'T' in ode_vars and sample_linear_flag:
+            U = sample_linear(ode_vars['T'], cruise_time, *max_inputs_list)
+            ode_vars['U'] = U
+        solve_ivp_dyn_obj(dynamic_obj, **ode_vars)
 
     # get filtered or smoothed estimates
     operation = kwargs.get('operation', 'filter')
