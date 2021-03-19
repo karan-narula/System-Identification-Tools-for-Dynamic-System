@@ -15,7 +15,7 @@ def bind_npi_pi(angles):
     return angles
 
 
-def create_dyn_obj(dyn_class, param_dict, simulate_gt=False, real_output=True, **kwargs):
+def create_dyn_obj(dyn_class, param_dict, simulate_gt=False, real_output=True, re_initialise=False, **kwargs):
     """
     Create dynamic object for specified class encapsulating some information useful during the estimation process
 
@@ -24,6 +24,7 @@ def create_dyn_obj(dyn_class, param_dict, simulate_gt=False, real_output=True, *
         param_dict (dict): dictionary of parameters needed for defining the dynamics
         simulate_gt (bool): whether to simulate ground truth data for dynamic object; defaults to false
         real_output (bool): whether dynamic object will later be used to encapsulate real data; defaults to true
+        re_initialise (bool): whether to reinitialise the dynamic object after simulating ground truth data; defaults to false
         kwargs: dictionary of variable length for additional parameters
 
     kwargs:
@@ -163,7 +164,8 @@ def create_dyn_obj(dyn_class, param_dict, simulate_gt=False, real_output=True, *
         U = kwargs.get('U', np.array([]))
         dynamic_obj.sample_nlds(z0, U, T, Q=Q, P0=P0, R=R, store_variables=True,
                                 overwrite_keys=overwrite_keys, overwrite_vals=overwrite_vals)
-        dynamic_obj.re_initialise()
+        if re_initialise:
+            dynamic_obj.re_initialise()
     else:
         dynamic_obj.P0 = P0
         dynamic_obj.Q = Q
