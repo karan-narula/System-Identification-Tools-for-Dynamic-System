@@ -276,6 +276,28 @@ if __name__ == '__main__':
 
     test_pbgf(OneWheelFrictionEst, param_dict, timing_vars=timing_vars,
               input_vars=input_vars, ode_vars=ode_vars, **configuration)
+
+    # test pbgf for the one wheel friction model with sudden change in road condition coefficient (parameters from NN paper)
+    param_dict = ODict([('sigma_0', 200.0), ('sigma_1', 0.4948), ('sigma_2', 0.0018), ('sigma_w', 0.0), ('L', 0.2), ('mu_c', 0.7),
+                        ('mu_s', 1.9), ('vs', 3.5), ('r', 0.25), ('m', 350.0), ('J', 0.2344), ('Fn', 1000.0), ('k', 1.1), ('theta', [1.0, 2.0])])
+    configuration = {}
+    configuration = {'seed': 0,
+                     'output_keys': ['w'],
+                     'est_params': ['theta'],
+                     'init_param_cov': 1e-2,
+                     'std_w': 1e-6,
+                     'std_v': 1e-6,
+                     'std_z': 1e-6,
+                     'std_w_out': 3.0*math.pi/180.0,
+                     'time_varying_q': 1e-6,
+                     'angle_states': []}
+    timing_vars = {'dt': 0.0005, 'tf': 50.0}
+    input_vars = {'sample_linear_flag': True, 'max_inputs_list': [50.0], 'cruise_time': 10.0}
+    ode_vars = {'plot_result': True, 'plot_euler_result': True, 'num_rows': 1}
+
+    test_pbgf(OneWheelFrictionEst, param_dict, timing_vars=timing_vars,
+              input_vars=input_vars, ode_vars=ode_vars, **configuration)
+
 """
 Testing kinematic observer (Not working yet!)
 
