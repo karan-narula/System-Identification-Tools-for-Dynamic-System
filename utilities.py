@@ -295,7 +295,7 @@ def solve_ivp_dyn_obj(dynamic_obj, T=None, U=None, plot_result=False, plot_euler
     return ivp_result
 
 
-def create_filtered_estimates(dynamic_obj, method='CKF', order=2):
+def create_filtered_estimates(dynamic_obj, method='CKF', order=2, obs_freq=float('inf')):
     """
     Generate mean and covariance of filtered distribution at various times for the problem defined by the dynamic object.
 
@@ -303,6 +303,7 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2):
         dynamic_obj (obj derived from AbstractDyn): dynamic object encapsulating source of information for the filter
         method (str): The method for filtering algorithm, see estimators.py for the methods currently implemented; defaults to 'CKF'
         order (int): Order of accuracy for integration rule, see estimators.py for orders currently implemented; defaults to 2
+        obs_freq (float): Frequency of using observations stored in dynamic object for update step
 
     Returns:
         est_states (numpy array [dynamic_obj.num_states x nt]): filtered mean estimates of the states at different time instances
@@ -319,6 +320,9 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2):
     else:
         innovation_bound_func = {}
 
+    # keep track of time since last update
+    time_since_last_update = 0.0
+
     # filtering loop
     num_sol = len(dynamic_obj.T)
     est_states = np.zeros((dynamic_obj.num_states, num_sol))
@@ -327,7 +331,16 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2):
         (dynamic_obj.num_states, dynamic_obj.num_states, num_sol))
     cov_states[:, :, 0] = dynamic_obj.P0.copy()
     for i in range(1, num_sol):
-        est_states[:, i:i+1], cov_states[:, :, i] = pbgf.predict_and_or_update(est_states[:, i-1:i], cov_states[:, :, i-1], dynamic_obj.process_model, dynamic_obj.observation_model, dynamic_obj.Q, dynamic_obj.R, dynamic_obj.U[:, i-1], dynamic_obj.outputs[:, i:i+1], dynamic_obj.U[:, i], additional_args_pm=[
+        # get output for desired frquency
+        if time_since_last_update >= 1/obs_freq:
+            time_since_last_update = 0.0
+            output = dynamic_obj.outputs[:, i:i+1]
+        else:
+            time_since_last_update += dynamic_obj.T[i] - dynamic_obj.T[i-1]
+            output = []
+
+        # perform prediction and update
+        est_states[:, i:i+1], cov_states[:, :, i] = pbgf.predict_and_or_update(est_states[:, i-1:i], cov_states[:, :, i-1], dynamic_obj.process_model, dynamic_obj.observation_model, dynamic_obj.Q, dynamic_obj.R, dynamic_obj.U[:, i-1], output, dynamic_obj.U[:, i], additional_args_pm=[
                                                                                sub[i-1] for sub in dynamic_obj.additional_args_pm_list], additional_args_om=[sub[i] for sub in dynamic_obj.additional_args_om_list], innovation_bound_func=innovation_bound_func)
 
     return est_states, cov_states
