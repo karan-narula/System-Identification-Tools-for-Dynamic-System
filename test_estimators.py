@@ -163,7 +163,8 @@ def test_pbgf(dyn_class, param_dict, timing_vars={}, input_vars={}, ode_vars={},
     assert operation in [
         'filter', 'smoother'], "Invalid estimation operation requested"
     if operation == 'filter':
-        est_states = create_filtered_estimates(dynamic_obj, order=2)[0]
+        obs_freq = kwargs.get('obs_freq', float('inf'))
+        est_states = create_filtered_estimates(dynamic_obj, order=2, obs_freq=obs_freq)[0]
     else:
         lag_interval = kwargs.get('lag_interval', 5)
         est_states = create_smoothed_estimates(
@@ -261,13 +262,14 @@ if __name__ == '__main__':
     configuration = {'seed': 0,
                      'output_keys': ['w'],
                      'est_params': ['theta'],
-                     'init_param_cov': 1e-2,
-                     'std_w': 1e-4,
-                     'std_v': 1e-4,
-                     'std_z': 1e-4,
+                     'init_param_cov': 1e-1,
+                     'std_w': 1e-12,
+                     'std_v': 1e-12,
+                     'std_z': 1e-12,
                      'std_w_out': 3.0*math.pi/180.0,
-                     'time_varying_q': 1e-4,
-                     'angle_states': []}
+                     'time_varying_q': 1e-7,
+                     'angle_states': [],
+                     'obs_freq': 100.0}
     max_torque = 5.0
     timing_vars = {'dt': 0.0005, 'tf': 30}
     input_vars = {'sample_linear_flag': True, 'max_inputs_list': [max_torque]}
@@ -290,7 +292,8 @@ if __name__ == '__main__':
                      'std_z': 1e-6,
                      'std_w_out': 3.0*math.pi/180.0,
                      'time_varying_q': 1e-6,
-                     'angle_states': []}
+                     'angle_states': [],
+                     'obs_freq': 10.0}
     timing_vars = {'dt': 0.0005, 'tf': 50.0}
     input_vars = {'sample_linear_flag': True, 'max_inputs_list': [50.0], 'cruise_time': 10.0}
     ode_vars = {'plot_result': True, 'plot_euler_result': True, 'num_rows': 1}
