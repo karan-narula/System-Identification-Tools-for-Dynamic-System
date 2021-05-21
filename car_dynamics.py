@@ -1122,9 +1122,9 @@ class RearDriveFrontSteer(AbstractDyn):
         if sigma_xf < 0.0:
            # braking phase
            if vx != 0.0:
-                sigma_xf /= vx
+               sigma_xf /= vx
            else:
-                sigma_xf = 0.0
+               sigma_xf = 0.0
         else:
             # acceleration phase
             if wf != 0.0:
@@ -1136,9 +1136,9 @@ class RearDriveFrontSteer(AbstractDyn):
         if sigma_xr < 0.0:
            # braking phase
            if vx != 0.0:
-                sigma_xr /= vx
+               sigma_xr /= vx
            else:
-                sigma_xr = 0.0
+               sigma_xr = 0.0
         else:
             # acceleration phase
             if wr != 0.0:
@@ -1328,10 +1328,10 @@ class RearDriveFrontSteerSubStateVel(AbstractDyn):
         if sigma_xf < 0.0:
            # braking phase
            if vx != 0.0:
-                sigma_xf /= vx
+               sigma_xf /= vx
            else:
-                sigma_xf = 0.0
-                print("vx = 0 detected")
+               sigma_xf = 0.0
+               print("vx = 0 detected")
         else:
             # acceleration phase
             if wf != 0.0:
@@ -1344,9 +1344,9 @@ class RearDriveFrontSteerSubStateVel(AbstractDyn):
         if sigma_xr < 0.0:
            # braking phase
            if vx != 0.0:
-                sigma_xr /= vx
+               sigma_xr /= vx
            else:
-                sigma_xr = 0.0
+               sigma_xr = 0.0
         else:
             # acceleration phase
             if wr != 0.0:

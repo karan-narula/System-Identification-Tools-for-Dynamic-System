@@ -331,7 +331,8 @@ if __name__ == '__main__':
                      'angle_states': [],
                      'obs_freq': 10.0}
     timing_vars = {'dt': 0.0005, 'tf': 50.0}
-    input_vars = {'sample_linear_flag': True, 'max_inputs_list': [50.0], 'cruise_time': 10.0}
+    input_vars = {'sample_linear_flag': True,
+                  'max_inputs_list': [50.0], 'cruise_time': 10.0}
     ode_vars = {'plot_result': True, 'plot_euler_result': True, 'num_rows': 1}
 
     test_pbgf(OneWheelFrictionEst, param_dict, timing_vars=timing_vars,
