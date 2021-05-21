@@ -7,6 +7,13 @@ from scipy.optimize import least_squares
 import itertools
 from collections import Iterable
 
+try:
+    import torch
+    torch_imported = True
+except ImportError:
+    print("Unable to import pytorch module")
+    torch_imported = False
+
 
 def sample_gaussian(mu, Sigma, N=1):
     """
@@ -78,10 +85,12 @@ class PointBasedFilter(object):
         method (str): The method for filtering algorithm, there are two choices: 'UKF' for unscented Filter 
             and 'CKF' for Cubature Filter
         order (int): Order of accuracy for integration rule. Currently, there are two choices: 2 and 4
+        use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False. User has
+        be careful and make sure that all other inputs are tensors as well
 
     """
 
-    def __init__(self, method, order):
+    def __init__(self, method, order, use_torch_tensor=False):
         methods = ['UKF', 'CKF']
         orders = [2, 4]
 
@@ -90,6 +99,10 @@ class PointBasedFilter(object):
 
         self.method = method
         self.order = order
+        self.use_torch_tensor = use_torch_tensor
+        # check if torch library was successfully imported
+        if self.use_torch_tensor:
+            assert torch_imported, "Pytorch module was not successfully imported which prohibits the use of tensor with this library"
 
     def predict_and_or_update(self, X, P, f, h, Q, R, u, y, u_next=None, Qu=None, additional_args_pm=[], additional_args_om=[], innovation_bound_func={}, predict_flag=True):
         """
@@ -125,10 +138,18 @@ class PointBasedFilter(object):
             nqu = Qu.shape[0]
         else:
             nqu = 0
-            Qu = np.zeros((nqu, nqu))
+            if self.use_torch_tensor:
+                Qu = torch.zeros((nqu, nqu), dtype=X.dtype)
+            else:
+                Qu = np.zeros((nqu, nqu))
         nr = R.shape[0]
-        X1 = np.concatenate((X, np.zeros((nq+nqu+nr, 1))), axis=0)
-        P1 = block_diag(P, Q, Qu, R)
+        if self.use_torch_tensor:
+            X1 = torch.cat(
+                (X, torch.zeros((nq+nqu+nr, 1), dtype=X.dtype)), dim=0)
+            P1 = torch.block_diag(P, Q, Qu, R)
+        else:
+            X1 = np.concatenate((X, np.zeros((nq+nqu+nr, 1))), axis=0)
+            P1 = block_diag(P, Q, Qu, R)
 
         # if next input is not specified, take current one
         if u_next is None:
@@ -166,18 +187,29 @@ class PointBasedFilter(object):
             ip = np.arange(n+nq+nqu, n+nq+nqu+nr)
             Z, _, Pz, z2 = self.unscented_transformH(
                 x, W, WeightMat, L, h, u_next, ia, ip, len(y), additional_args_om)
-            # transformed cross-covariance (equation 5.38)
-            Pxy = np.matmul(np.matmul(x1, WeightMat), z2.T)
-            # Kalman gain
-            K = np.matmul(Pxy, np.linalg.inv(Pz))
+            if self.use_torch_tensor:
+                # transformed cross-covariance (equation 5.38)
+                Pxy = torch.matmul(torch.matmul(x1, WeightMat), z2.T)
+                # Kalman gain
+                K = torch.matmul(Pxy, torch.linalg.inv(Pz))
+            else:
+                # transformed cross-covariance (equation 5.38)
+                Pxy = np.matmul(np.matmul(x1, WeightMat), z2.T)
+                # Kalman gain
+                K = np.matmul(Pxy, np.linalg.inv(Pz))
             # state update (equation 5.40)
             innovation = y - Z
             for key in innovation_bound_func:
                 innovation[key, :] = innovation_bound_func[key](
                     innovation[key, :])
-            X += np.matmul(K, innovation)
-            # covariance update (equation 5.41)
-            P -= np.matmul(K, Pxy.T)
+            if self.use_torch_tensor:
+                X += torch.matmul(K, innovation)
+                # covariance update (equation 5.41)
+                P -= torch.matmul(K, Pxy.T)
+            else:
+                X += np.matmul(K, innovation)
+                # covariance update (equation 5.41)
+                P -= np.matmul(K, Pxy.T)
 
         return X, P
 
@@ -204,17 +236,27 @@ class PointBasedFilter(object):
             y1 (numpy array [n x L]): zero-mean Transformed sigma/cubature points
 
         """
-        Y = np.zeros((n, 1))
-        y = np.zeros((n, L))
+        if self.use_torch_tensor:
+            Y = torch.zeros((n, 1), dtype=x.dtype)
+            y = torch.zeros((n, L), dtype=x.dtype)
+        else:
+            Y = np.zeros((n, 1))
+            y = np.zeros((n, L))
         # Propagating sigma/cubature points through function (equation 5.36)
         for k in range(L):
             y[:, k] = f(x[ia, k], u, x[iq, k], *additional_args)
             # Calculating mean (equation 5.37)
-            Y += W.flat[k]*y[:, k:k+1]
+            if self.use_torch_tensor:
+                Y += W[0, k]*y[:, k:k+1]
+            else:
+                Y += W.flat[k]*y[:, k:k+1]
 
         # Calculating covariance (equation 5.39)
         y1 = y - Y
-        P = np.matmul(np.matmul(y1, WeightMat), y1.T)
+        if self.use_torch_tensor:
+            P = torch.matmul(torch.matmul(y1, WeightMat), y1.T)
+        else:
+            P = np.matmul(np.matmul(y1, WeightMat), y1.T)
 
         return Y, y, P, y1
 
@@ -242,7 +284,10 @@ class PointBasedFilter(object):
 
         """
         order = len(ia)
-        Y = np.zeros((order, 1))
+        if self.use_torch_tensor:
+            Y = torch.zeros((order, 1), dtype=x.dtype)
+        else:
+            Y = np.zeros((order, 1))
         y = x
         # Propagating sigma/cubature points through function (equation 5.25)
         for k in range(L):
@@ -250,14 +295,20 @@ class PointBasedFilter(object):
                 y[ia, k] = f(x[ia, k], u, x[iq, k],
                              x[iqu, k], *additional_args)
             else:
-                y[ia, k] = f(x[ia, k], u, x[iq, k],
-                             np.zeros(u.shape), *additional_args)
+                y[ia, k] = f(x[ia, k], u, x[iq, k], torch.zeros(
+                    u.shape, dtype=x.dtype) if self.use_torch_tensor else np.zeros(u.shape), *additional_args)
             # Calculating mean (equation 5.34)
-            Y += W.flat[k]*y[np.arange(order), k:k+1]
+            if self.use_torch_tensor:
+                Y += W[0, k]*y[np.arange(order), k:k+1]
+            else:
+                Y += W.flat[k]*y[np.arange(order), k:k+1]
 
         # Calculating covariance (equation 5.35)
         y1 = y[np.arange(order), :] - Y
-        P = np.matmul(np.matmul(y1, WeightMat), y1.T)
+        if self.use_torch_tensor:
+            P = torch.matmul(torch.matmul(y1, WeightMat), y1.T)
+        else:
+            P = np.matmul(np.matmul(y1, WeightMat), y1.T)
 
         return Y, y, P, y1
 
@@ -284,10 +335,17 @@ class PointBasedFilter(object):
         W = np.concatenate(
             (np.array([[Params[0]]]), np.matlib.repmat(Params[1], 1, 2*n)), axis=1)
         WeightMat = np.diag(np.squeeze(W))
+        if self.use_torch_tensor:
+            W = torch.from_numpy(W)
+            WeightMat = torch.from_numpy(WeightMat)
 
         # first perform SVD to get the square root matrix (step 3 of algorithm 5.1, equation 5.22)
-        U, D, _ = np.linalg.svd(P)
-        sqP = np.matmul(U, np.diag(D**0.5))
+        if self.use_torch_tensor:
+            U, D, _ = torch.linalg.svd(P)
+            sqP = torch.matmul(U, torch.diag(D**0.5))
+        else:
+            U, D, _ = np.linalg.svd(P)
+            sqP = np.matmul(U, np.diag(D**0.5))
 
         # create sigma point set (step 2 of algorithm 5.1)
         temp = np.zeros((n, L))
@@ -298,11 +356,17 @@ class PointBasedFilter(object):
         temp.flat[l_index] = -Params[2]
 
         # step 4 of algorithm 5.1 equation 5.24
-        Y = np.matlib.repmat(X, 1, L)
-        x = Y + np.matmul(sqP, temp)
+        if self.use_torch_tensor:
+            temp = torch.from_numpy(temp)
+            Y = torch.tile(X, (1, L))
+            x = Y + torch.matmul(sqP, temp)
+        else:
+            Y = np.matlib.repmat(X, 1, L)
+            x = Y + np.matmul(sqP, temp)
 
         # for debugging
-        # self.verifySigma(temp, W, 3)
+        #self.verifySigma(temp, W, 3)
+        #print(self.verifyTransformedSigma(x, WeightMat, X, P))
 
         return x, L, W, WeightMat
 
@@ -331,10 +395,17 @@ class PointBasedFilter(object):
         W = np.concatenate((np.array([[1 + (n**2-7.0*n)/18.0]]), np.matlib.repmat(
             (4-n)/18.0, 1, 2*n), np.matlib.repmat(1.0/36.0, 1, 2*n**2-2*n)), axis=1)
         WeightMat = np.diag(np.squeeze(W))
+        if self.use_torch_tensor:
+            W = torch.from_numpy(W)
+            WeightMat = torch.from_numpy(WeightMat)
 
         # first perform SVD to get the square root matrix (step 3 of algorithm 5.1, equation 5.22)
-        U, D, _ = np.linalg.svd(P)
-        sqP = np.matmul(U, np.diag(D**0.5))
+        if self.use_torch_tensor:
+            U, D, _ = torch.linalg.svd(P)
+            sqP = torch.matmul(U, torch.diag(D**0.5))
+        else:
+            U, D, _ = np.linalg.svd(P)
+            sqP = np.matmul(U, np.diag(D**0.5))
 
         # create sigma point set (step 2 of algorithm 5.1)
         s = math.sqrt(3.0)
@@ -346,8 +417,13 @@ class PointBasedFilter(object):
         temp.flat[l_index] = -s
 
         # step 4 of algorithm 5.1 equation 5.24
-        Y = np.matlib.repmat(X, 1, 2*n+1)
-        x = Y + np.matmul(sqP, temp)
+        if self.use_torch_tensor:
+            temp = torch.from_numpy(temp)
+            Y = torch.tile(X, (1, 2*n+1))
+            x = Y + torch.matmul(sqP, temp)
+        else:
+            Y = np.matlib.repmat(X, 1, 2*n+1)
+            x = Y + np.matmul(sqP, temp)
 
         # create second type of sigma point: 2n**2 - 2n points based on (s2,s2) structure (step 2 of algorithm 5.1)
         temp1 = np.zeros((n, 2*n**2 - 2*n))
@@ -362,12 +438,23 @@ class PointBasedFilter(object):
             l_index += count
 
         # step 4 of algorithm 5.1 equation 5.24
-        Y = np.matlib.repmat(X, 1, 2*n**2 - 2*n)
-        x = np.concatenate((x, Y + np.matmul(sqP, temp1)), axis=1)
+        if self.use_torch_tensor:
+            temp1 = torch.from_numpy(temp1)
+            Y = torch.tile(X, (1, 2*n**2 - 2*n))
+            x = torch.cat((x, Y + torch.matmul(sqP, temp1)), dim=1)
+        else:
+            Y = np.matlib.repmat(X, 1, 2*n**2 - 2*n)
+            x = np.concatenate((x, Y + np.matmul(sqP, temp1)), axis=1)
 
         # for debugging
-        # temp = np.concatenate((temp, temp1), axis=1)
-        # self.verifySigma(temp, W, 5)
+        """
+        if self.use_torch_tensor:
+            temp2 = torch.cat((temp, temp1), dim=1)
+        else:
+            temp2 = np.concatenate((temp, temp1), axis=1)
+        self.verifySigma(temp2, W, 5)
+        print(self.verifyTransformedSigma(x, WeightMat, X, P))
+        """
 
         return x, L, W, WeightMat
 
@@ -392,10 +479,17 @@ class PointBasedFilter(object):
         L = 2*n
         W = np.matlib.repmat(1.0/L, 1, L)
         WeightMat = np.diag(np.squeeze(W))
+        if self.use_torch_tensor:
+            W = torch.from_numpy(W)
+            WeightMat = torch.from_numpy(WeightMat)
 
         # first perform SVD to get the square root matrix (step 3 of algorithm 5.1, equation 5.22)
-        U, D, _ = np.linalg.svd(P)
-        sqP = np.matmul(U, np.diag(D**0.5))
+        if self.use_torch_tensor:
+            U, D, _ = torch.linalg.svd(P)
+            sqP = torch.matmul(U, torch.diag(D**0.5))
+        else:
+            U, D, _ = np.linalg.svd(P)
+            sqP = np.matmul(U, np.diag(D**0.5))
 
         # create sigma point set (step 2 of algorithm 5.1)
         s = math.sqrt(n)
@@ -407,11 +501,17 @@ class PointBasedFilter(object):
         temp.flat[l_index] = -s
 
         # step 4 of algorithm 5.1 equation 5.24
-        Y = np.matlib.repmat(X, 1, L)
-        x = Y + np.matmul(sqP, temp)
+        if self.use_torch_tensor:
+            temp = torch.from_numpy(temp)
+            Y = torch.tile(X, (1, L))
+            x = Y + torch.matmul(sqP, temp)
+        else:
+            Y = np.matlib.repmat(X, 1, L)
+            x = Y + np.matmul(sqP, temp)
 
         # for debugging
-        # self.verifySigma(temp, W, 2)
+        #self.verifySigma(temp, W, 2)
+        #print(self.verifyTransformedSigma(x, WeightMat, X, P))
 
         return x, L, W, WeightMat
 
@@ -437,10 +537,17 @@ class PointBasedFilter(object):
         W = np.concatenate((np.array([[2.0/(n+2.0)]]), np.matlib.repmat((4-n)/(2.0*(
             n+2)**2), 1, 2*n), np.matlib.repmat(1.0/((n+2.0)**2), 1, 2*n**2-2*n)), axis=1)
         WeightMat = np.diag(np.squeeze(W))
+        if self.use_torch_tensor:
+            W = torch.from_numpy(W)
+            WeightMat = torch.from_numpy(WeightMat)
 
         # first perform SVD to get the square root matrix (step 3 of algorithm 5.1, equation 5.22)
-        U, D, _ = np.linalg.svd(P)
-        sqP = np.matmul(U, np.diag(D**0.5))
+        if self.use_torch_tensor:
+            U, D, _ = torch.linalg.svd(P)
+            sqP = torch.matmul(U, torch.diag(D**0.5))
+        else:
+            U, D, _ = np.linalg.svd(P)
+            sqP = np.matmul(U, np.diag(D**0.5))
 
         # create sigma point set (step 2 of algorithm 5.1)
         s = math.sqrt(n+2.0)
@@ -452,8 +559,13 @@ class PointBasedFilter(object):
         temp.flat[l_index] = -s
 
         # step 4 of algorithm 5.1 equation 5.24
-        Y = np.matlib.repmat(X, 1, 2*n+1)
-        x = Y + np.matmul(sqP, temp)
+        if self.use_torch_tensor:
+            temp = torch.from_numpy(temp)
+            Y = torch.tile(X, (1, 2*n+1))
+            x = Y + torch.matmul(sqP, temp)
+        else:
+            Y = np.matlib.repmat(X, 1, 2*n+1)
+            x = Y + np.matmul(sqP, temp)
 
         # create second type of sigma point: 2n**2 - 2n points based on (s2,s2) structure (step 2 of algorithm 5.1)
         s = math.sqrt(n+2.0)/math.sqrt(2.0)
@@ -469,12 +581,23 @@ class PointBasedFilter(object):
             l_index += count
 
         # step 4 of algorithm 5.1 equation 5.24
-        Y = np.matlib.repmat(X, 1, 2*n**2 - 2*n)
-        x = np.concatenate((x, Y + np.matmul(sqP, temp1)), axis=1)
+        if self.use_torch_tensor:
+            temp1 = torch.from_numpy(temp1)
+            Y = torch.tile(X, (1, 2*n**2 - 2*n))
+            x = torch.cat((x, Y + torch.matmul(sqP, temp1)), dim=1)
+        else:
+            Y = np.matlib.repmat(X, 1, 2*n**2 - 2*n)
+            x = np.concatenate((x, Y + np.matmul(sqP, temp1)), axis=1)
 
         # for debugging
-        # temp = np.concatenate((temp, temp1), axis=1)
-        # self.verifySigma(temp, W, 5)
+        """
+        if self.use_torch_tensor:
+            temp2 = torch.cat((temp, temp1), dim=1)
+        else:
+            temp2 = np.concatenate((temp, temp1), axis=1)
+        self.verifySigma(temp2, W, 5)
+        print(self.verifyTransformedSigma(x, WeightMat, X, P))
+        """
 
         return x, L, W, WeightMat
 
@@ -495,15 +618,27 @@ class PointBasedFilter(object):
 
         """
         sigma_mean = np.zeros(X.shape)
-        W = np.diag(WeightMat)
+        if self.use_torch_tensor:
+            W = np.diag(WeightMat.detach().numpy())
+            x_copy = x.detach().numpy()
+        else:
+            W = np.diag(WeightMat)
+            x_copy = x
         for i in range(x.shape[1]):
-            sigma_mean += W[i]*x[:, i:i+1]
+            sigma_mean += W[i]*x_copy[:, i:i+1]
 
-        sigma_cov = np.matmul(
-            np.matmul((x - sigma_mean), WeightMat), np.transpose(x - sigma_mean))
+        if self.use_torch_tensor:
+            sigma_cov = np.matmul(np.matmul(
+                (x_copy - sigma_mean), WeightMat.detach().numpy()), np.transpose(x_copy - sigma_mean))
 
-        mean_close = np.allclose(X, sigma_mean)
-        cov_close = np.allclose(P, sigma_cov)
+            mean_close = np.allclose(X.detach().numpy(), sigma_mean)
+            cov_close = np.allclose(P.detach().numpy(), sigma_cov)
+        else:
+            sigma_cov = np.matmul(
+                np.matmul((x_copy - sigma_mean), WeightMat), np.transpose(x_copy - sigma_mean))
+
+            mean_close = np.allclose(X, sigma_mean)
+            cov_close = np.allclose(P, sigma_cov)
 
         return mean_close, cov_close
 
@@ -519,6 +654,12 @@ class PointBasedFilter(object):
 
         """
         n, L = x.shape
+        if self.use_torch_tensor:
+            x_copy = x.detach().numpy()
+            W_copy = W.detach().numpy()
+        else:
+            x_copy = x
+            W_copy = W
 
         # check moment and cross moment of each order
         for i in range(1, order+1):
@@ -537,7 +678,7 @@ class PointBasedFilter(object):
                     range(n), len(output))
                 for elem_combination in elem_combinations:
                     moment = (
-                        W*np.prod(x[elem_combination, :]**np.matlib.repmat(output, L, 1).T, axis=0)).sum()
+                        W_copy*np.prod(x_copy[elem_combination, :]**np.matlib.repmat(output, L, 1).T, axis=0)).sum()
                     assert np.isclose(moment, theoretical_moment), "The {}th moment with element {} and power {} yielded value of {} instead of {}".format(
                         i, elem_combination, output, moment, theoretical_moment)
 
