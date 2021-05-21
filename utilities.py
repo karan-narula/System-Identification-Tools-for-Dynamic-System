@@ -285,7 +285,7 @@ def solve_ivp_dyn_obj(dynamic_obj, T=None, U=None, plot_result=False, plot_euler
                 plt.plot(T, ivp_result.y[index], label=method)
 
             # legend and labels
-            plt.legend()
+            plt.legend(loc='upper right')
             plt.xlabel("Time (seconds")
             plt.ylabel(key)
             plt.grid(True, "both")
