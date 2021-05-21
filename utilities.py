@@ -8,6 +8,13 @@ from scipy.integrate import solve_ivp
 
 from estimators import PointBasedFilter, PointBasedFixedLagSmoother
 
+try:
+    import torch
+    torch_imported = True
+except ImportError:
+    print("Unable to import pytorch module")
+    torch_imported = False
+
 
 def bind_npi_pi(angles):
     angles = np.fmod(angles + math.pi, 2*math.pi)
@@ -49,6 +56,7 @@ def create_dyn_obj(dyn_class, param_dict, simulate_gt=False, real_output=True, r
         init_param_cov (list or float): if list must be of size as len(est_params); covariance of initial condition for the
             parameters; defaults to 0.0
         init_params (list or float): if list must be of size as len(est_params); initial value of parameters; defaults to empty
+        use_torch_tensor (bool): whether to test the estimator with torch tensor instead of numpy arrays; defaults to False
 
     Returns:
         dynamic_obj (dyn_class obj): dynamic object
@@ -159,9 +167,12 @@ def create_dyn_obj(dyn_class, param_dict, simulate_gt=False, real_output=True, r
     temp.extend(init_param_cov)
     P0 = np.diag(temp)
 
+    # retrieve whether user intended to get torch tensor instead of numpy
+    use_torch_tensor = kwargs.get('use_torch_tensor', False)
+
     # create dynamic object, optionall ground truth data and noisy states
     dynamic_obj = dyn_class(param_dict, est_params, state_keys=output_keys, state_dot_keys=output_dot_keys,
-                            additional_output_keys=output_additional_keys, simulate_gt=simulate_gt)
+                            additional_output_keys=output_additional_keys, simulate_gt=simulate_gt, use_torch_tensor=use_torch_tensor)
     if simulate_gt and not real_output:
         U = kwargs.get('U', np.array([]))
         dynamic_obj.sample_nlds(z0, U, T, Q=Q, P0=P0, R=R, store_variables=True,
@@ -295,7 +306,7 @@ def solve_ivp_dyn_obj(dynamic_obj, T=None, U=None, plot_result=False, plot_euler
     return ivp_result
 
 
-def create_filtered_estimates(dynamic_obj, method='CKF', order=2, obs_freq=float('inf')):
+def create_filtered_estimates(dynamic_obj, method='CKF', order=2, obs_freq=float('inf'), use_torch_tensor=False):
     """
     Generate mean and covariance of filtered distribution at various times for the problem defined by the dynamic object.
 
@@ -304,6 +315,7 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2, obs_freq=float
         method (str): The method for filtering algorithm, see estimators.py for the methods currently implemented; defaults to 'CKF'
         order (int): Order of accuracy for integration rule, see estimators.py for orders currently implemented; defaults to 2
         obs_freq (float): Frequency of using observations stored in dynamic object for update step
+        use_torch_tensor (bool): whether to test the estimator with torch tensor instead of numpy arrays; defaults to False
 
     Returns:
         est_states (numpy array [dynamic_obj.num_states x nt]): filtered mean estimates of the states at different time instances
@@ -313,7 +325,7 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2, obs_freq=float
     """
 
     # create instance of the filter
-    pbgf = PointBasedFilter(method, order)
+    pbgf = PointBasedFilter(method, order, use_torch_tensor=use_torch_tensor)
 
     if hasattr(dynamic_obj, 'innovation_bound_func'):
         innovation_bound_func = dynamic_obj.innovation_bound_func
@@ -330,6 +342,15 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2, obs_freq=float
     cov_states = np.zeros(
         (dynamic_obj.num_states, dynamic_obj.num_states, num_sol))
     cov_states[:, :, 0] = dynamic_obj.P0.copy()
+    X = est_states[:, 0:1].copy()
+    P = cov_states[:, :, 0].copy()
+    if use_torch_tensor:
+        # check whether import was successful
+        assert torch_imported, "Pytorch module was not successfully imported which prohibits the use of tensor with this library"
+
+        X = torch.from_numpy(X)
+        P = torch.from_numpy(P)
+
     for i in range(1, num_sol):
         # get output for desired frquency
         if time_since_last_update >= 1/obs_freq:
@@ -340,8 +361,16 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2, obs_freq=float
             output = []
 
         # perform prediction and update
-        est_states[:, i:i+1], cov_states[:, :, i] = pbgf.predict_and_or_update(est_states[:, i-1:i], cov_states[:, :, i-1], dynamic_obj.process_model, dynamic_obj.observation_model, dynamic_obj.Q, dynamic_obj.R, dynamic_obj.U[:, i-1], output, dynamic_obj.U[:, i], additional_args_pm=[
-                                                                               sub[i-1] for sub in dynamic_obj.additional_args_pm_list], additional_args_om=[sub[i] for sub in dynamic_obj.additional_args_om_list], innovation_bound_func=innovation_bound_func)
+        X, P = pbgf.predict_and_or_update(X, P, dynamic_obj.process_model, dynamic_obj.observation_model, dynamic_obj.Q, dynamic_obj.R, dynamic_obj.U[:, i-1], output, dynamic_obj.U[:, i], additional_args_pm=[
+                                          sub[i-1] for sub in dynamic_obj.additional_args_pm_list], additional_args_om=[sub[i] for sub in dynamic_obj.additional_args_om_list], innovation_bound_func=innovation_bound_func)
+
+        # store result from latest prediction/update step
+        if use_torch_tensor:
+            est_states[:, i:i+1] = X.detach().numpy()
+            cov_states[:, :, i] = P.detach().numpy()
+        else:
+            est_states[:, i:i+1] = X.copy()
+            cov_states[:, :, i] = P.copy()
 
     return est_states, cov_states
 
