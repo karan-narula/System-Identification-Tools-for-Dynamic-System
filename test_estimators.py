@@ -337,6 +337,11 @@ if __name__ == '__main__':
     test_pbgf(OneWheelFrictionEst, param_dict, timing_vars=timing_vars,
               input_vars=input_vars, ode_vars=ode_vars, **configuration)
 
+    # test the same thing as above but with tensor instead of numpy
+    configuration['use_torch_tensor'] = True
+    test_pbgf(OneWheelFrictionEst, param_dict, timing_vars=timing_vars,
+              input_vars=input_vars, ode_vars=ode_vars, **configuration)
+
 """
 Testing kinematic observer (Not working yet!)
 
