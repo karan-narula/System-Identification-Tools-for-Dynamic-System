@@ -5,6 +5,13 @@ from collections import Iterable
 
 from estimators import sample_nlds
 
+try:
+    import torch
+    torch_imported = True
+except ImportError:
+    print("Unable to import pytorch module")
+    torch_imported = False
+
 
 def cal_vxvy_from_coord(state, state_prev, dt, x_ind=0, y_ind=1, theta_ind=2):
     """
@@ -47,11 +54,12 @@ class AbstractDyn(object):
         state_keys (list): list of states string that are observed by sensor; defaults to empty
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
         additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
+        use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False
 
     """
     __metaclass__ = abc.ABCMeta
 
-    def __init__(self, param_dict, state_keys=[], state_dot_keys=[], additional_output_keys=[]):
+    def __init__(self, param_dict, state_keys=[], state_dot_keys=[], additional_output_keys=[], use_torch_tensor=False):
         # store the parameter dictionary for the vehicle dynamics
         self.param_dict = param_dict.copy()
 
@@ -60,6 +68,19 @@ class AbstractDyn(object):
 
         # copy state dict from global
         self.state_dict = self.global_state_dict.copy()
+
+        # store whether user will be using torch tensor or not
+        self.use_torch_tensor = use_torch_tensor
+
+        # default value of tensor complaince of dynamic object to False
+        if 'tensor_compliance' not in self.__dir__():
+            self.tensor_compliance = False
+
+        # check if torch library was successfully imported or if the dynamic library is torch compliant
+        if self.use_torch_tensor:
+            assert torch_imported, "Pytorch module was not successfully imported which prohibits the use of tensor with this library"
+
+            assert self.tensor_compliance, "Dynamic class is not yet tensor compliant"
 
         # check if param dictionary is valid
         assert self.check_param_dict(), "Parameter dictionary does not contain all requried keys"
@@ -231,7 +252,10 @@ class AbstractDyn(object):
         Returns:
             output (numpy array [len(self.additional_output_keys) x 1): observed additional output
         """
-        return np.array([])
+        if self.use_torch_tensor:
+            return torch.empty(0)
+        else:
+            return np.array([])
 
     def output_model(self, state, u, param_dict):
         """
@@ -247,7 +271,10 @@ class AbstractDyn(object):
                 observed state and state derivatives of the system
 
         """
-        return np.concatenate((state[self.state_indices], self.dxdt(state, u, param_dict)[0, self.state_dot_indices], self.additional_output_model(state, u, param_dict)))
+        if self.use_torch_tensor:
+            return torch.cat((state[self.state_indices], self.dxdt(state, u, param_dict)[0, self.state_dot_indices], self.additional_output_model(state, u, param_dict)))
+        else:
+            return np.concatenate((state[self.state_indices], self.dxdt(state, u, param_dict)[0, self.state_dot_indices], self.additional_output_model(state, u, param_dict)))
 
     def cal_vxvy_from_coord(self, output=True):
         """
@@ -299,6 +326,7 @@ class FrontSteered(AbstractDyn):
         state_keys (list): list of states string that are observed by sensor
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
         additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
+        use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False
 
     """
     # state dictionary for this model
@@ -308,9 +336,9 @@ class FrontSteered(AbstractDyn):
     global_expected_keys = ["mass", "lr", "lf",
                             "e_wr", "cxf", "cxr", "cyf", "cyr", "iz"]
 
-    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[]):
-        super(FrontSteered, self).__init__(param_dict, state_keys=state_keys,
-                                           state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys)
+    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[], use_torch_tensor=False):
+        super(FrontSteered, self).__init__(param_dict, state_keys=state_keys, state_dot_keys=state_dot_keys,
+                                           additional_output_keys=additional_output_keys, use_torch_tensor=use_torch_tensor)
 
         # dimensionality of input
         self.num_in = 3
@@ -444,6 +472,7 @@ class RoverDyn(AbstractDyn):
         state_keys (list): list of states string that are observed by sensor
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
         additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
+        use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False
 
     """
     # state dictionary for this model
@@ -452,9 +481,9 @@ class RoverDyn(AbstractDyn):
     global_expected_keys = ["c1", "c2", "c3",
                             "c4", "c5", "c6", "c7", "c8", "c9"]
 
-    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[]):
-        super(RoverDyn, self).__init__(param_dict, state_keys=state_keys,
-                                       state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys)
+    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[], use_torch_tensor=False):
+        super(RoverDyn, self).__init__(param_dict, state_keys=state_keys, state_dot_keys=state_dot_keys,
+                                       additional_output_keys=additional_output_keys, use_torch_tensor=use_torch_tensor)
 
         # specify expected dimensionality of input
         self.num_in = 2
@@ -524,7 +553,7 @@ class RoverDyn(AbstractDyn):
         return output
 
 
-def partial_init(obj, class_type, est_params, param_dict, state_keys, simulate_gt, state_dot_keys=[], additional_output_keys=[]):
+def partial_init(obj, class_type, est_params, param_dict, state_keys, simulate_gt, state_dot_keys=[], additional_output_keys=[], use_torch_tensor=False):
     """
     Function to help initialise an Estimate class deriving from the dynamic class.
 
@@ -537,14 +566,16 @@ def partial_init(obj, class_type, est_params, param_dict, state_keys, simulate_g
         simulate_gt (bool): specify whether model is during the stage of simulating ground truth
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
         additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
+        use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False
 
     """
     # store if we are simulating ground truth or not
     obj.simulate_gt = simulate_gt
 
     if obj.simulate_gt:
-        super(class_type, obj).__init__(param_dict, state_keys,
-                                        state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys)
+        super(class_type, obj).__init__(param_dict, state_keys, state_dot_keys=state_dot_keys,
+                                        additional_output_keys=additional_output_keys, use_torch_tensor=False)
+        obj.later_use_torch_tensor = use_torch_tensor
     else:
         # remove parameters to be estimated from dictionary
         pruned_param_dict = param_dict.copy()
@@ -552,8 +583,8 @@ def partial_init(obj, class_type, est_params, param_dict, state_keys, simulate_g
             if est_param in pruned_param_dict:
                 del pruned_param_dict[est_param]
 
-        super(class_type, obj).__init__(pruned_param_dict, state_keys,
-                                        state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys)
+        super(class_type, obj).__init__(pruned_param_dict, state_keys, state_dot_keys=state_dot_keys,
+                                        additional_output_keys=additional_output_keys, use_torch_tensor=use_torch_tensor)
 
         # check if est_params are in expected keys
         for est_param in est_params:
@@ -597,6 +628,10 @@ def re_initialise(obj):
         # check if param dictionary is valid
         assert obj.check_param_dict(), "Parameter dictionary does not contain all requried keys"
 
+        # retrieve initially proved direction on usage of torch tensor
+        obj.use_torch_tensor = obj.later_use_torch_tensor
+        del obj.later_use_torch_tensor
+
 
 def partial_dxdt(obj, class_type, state, u, param_dict):
     """
@@ -617,7 +652,10 @@ def partial_dxdt(obj, class_type, state, u, param_dict):
             param_dict[est_param] = state[obj.num_dyn_states+i]
 
     state_dot = super(class_type, obj).dxdt(state, u, param_dict)
-    return np.concatenate((state_dot, np.zeros((1, len(obj.est_params)))), axis=1)
+    if obj.use_torch_tensor:
+        return torch.cat((state_dot, torch.zeros((1, len(obj.est_params)), dtype=state_dot.dtype)), dim=1)
+    else:
+        return np.concatenate((state_dot, np.zeros((1, len(obj.est_params)))), axis=1)
 
 
 class RoverPartialDynEst(RoverDyn):
@@ -634,12 +672,13 @@ class RoverPartialDynEst(RoverDyn):
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
         simulate_gt (bool): specify whether model is during the stage of simulating ground truth
         additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
+        use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False
 
     """
 
-    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False, additional_output_keys=[]):
-        partial_init(self, RoverPartialDynEst, est_params, param_dict,
-                     state_keys, simulate_gt, state_dot_keys, additional_output_keys)
+    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False, additional_output_keys=[], use_torch_tensor=False):
+        partial_init(self, RoverPartialDynEst, est_params, param_dict, state_keys, simulate_gt,
+                     state_dot_keys, additional_output_keys, use_torch_tensor=use_torch_tensor)
 
     def re_initialise(self):
         """
@@ -697,6 +736,7 @@ class OneWheelFriction(AbstractDyn):
         state_keys (list): list of states string that are observed by sensor
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
         additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
+        use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False
 
     """
     # state dictionary for this model
@@ -704,10 +744,11 @@ class OneWheelFriction(AbstractDyn):
     # expected keys/parameters of this model
     global_expected_keys = ["sigma_0", "sigma_1", "sigma_2", "sigma_w",
                             "L", "mu_c", "mu_s", "vs", "theta", "r", "m", "J", "k", "Fn"]
+    tensor_compliance = True
 
-    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[]):
-        super(OneWheelFriction, self).__init__(param_dict, state_keys=state_keys,
-                                               state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys)
+    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[], use_torch_tensor=False):
+        super(OneWheelFriction, self).__init__(param_dict, state_keys=state_keys, state_dot_keys=state_dot_keys,
+                                               additional_output_keys=additional_output_keys, use_torch_tensor=use_torch_tensor)
         # specify expected dimensionality of input
         self.num_in = 1
 
@@ -753,16 +794,26 @@ class OneWheelFriction(AbstractDyn):
 
         # define function
         def gvr(vr):
-            return mu_c + (mu_s - mu_c)*math.exp(-math.sqrt(math.fabs(vr/vs)))
+            if self.use_torch_tensor:
+                return mu_c + (mu_s - mu_c)*torch.exp(-torch.sqrt(torch.abs(vr/vs)))
+            else:
+                return mu_c + (mu_s - mu_c)*math.exp(-math.sqrt(math.fabs(vr/vs)))
 
         # calculate the state derivatives
         vr = r*w - v
-        zdot = vr - z*(theta*sigma_0*math.fabs(vr) /
-                       gvr(vr) + k*r*math.fabs(w)/L)
+        if self.use_torch_tensor:
+            zdot = vr - z*(theta*sigma_0*torch.abs(vr) /
+                           gvr(vr) + k*r*torch.abs(w)/L)
+        else:
+            zdot = vr - z*(theta*sigma_0*math.fabs(vr) /
+                           gvr(vr) + k*r*math.fabs(w)/L)
         vdot = Fn/m*(sigma_0*z + sigma_1*zdot + sigma_2*vr)
         wdot = (-r*Fn*(sigma_0*z + sigma_1*zdot) - sigma_w*w + ur)/J
 
-        return np.array([[vdot, wdot, zdot]])
+        if self.use_torch_tensor:
+            return torch.stack([vdot, wdot, zdot]).unsqueeze(0)
+        else:
+            return np.array([[vdot, wdot, zdot]])
 
 
 class OneWheelFrictionEst(OneWheelFriction):
@@ -779,12 +830,13 @@ class OneWheelFrictionEst(OneWheelFriction):
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
         simulate_gt (bool): specify whether model is during the stage of simulating ground truth
         additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
+        use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False
 
     """
 
-    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False, additional_output_keys=[]):
-        partial_init(self, OneWheelFrictionEst, est_params, param_dict,
-                     state_keys, simulate_gt, state_dot_keys, additional_output_keys)
+    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False, additional_output_keys=[], use_torch_tensor=False):
+        partial_init(self, OneWheelFrictionEst, est_params, param_dict, state_keys, simulate_gt,
+                     state_dot_keys, additional_output_keys, use_torch_tensor=use_torch_tensor)
 
     def re_initialise(self):
         """
@@ -850,6 +902,7 @@ class FrontDriveFrontSteer(AbstractDyn):
         state_keys (list): list of states string that are observed by sensor
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
         additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
+        use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False
 
     """
     # state dictionary for this model
@@ -858,9 +911,9 @@ class FrontDriveFrontSteer(AbstractDyn):
     global_expected_keys = ["fx", "cf", "cr",
                             "lf", "lr", "m", "iz", "rc", "fr", "g"]
 
-    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[]):
-        super(FrontDriveFrontSteer, self).__init__(param_dict, state_keys=state_keys,
-                                                   state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys)
+    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[], use_torch_tensor=False):
+        super(FrontDriveFrontSteer, self).__init__(param_dict, state_keys=state_keys, state_dot_keys=state_dot_keys,
+                                                   additional_output_keys=additional_output_keys, use_torch_tensor=use_torch_tensor)
 
         # specify expected dimensionality of input
         self.num_in = 2
@@ -938,12 +991,13 @@ class FrontDriveFrontSteerEst(FrontDriveFrontSteer):
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
         simulate_gt (bool): specify whether model is during the stage of simulating ground truth
         additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
+        use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False
 
     """
 
-    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False, additional_output_keys=[]):
-        partial_init(self, FrontDriveFrontSteerEst, est_params, param_dict,
-                     state_keys, simulate_gt, state_dot_keys, additional_output_keys)
+    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False, additional_output_keys=[], use_torch_tensor=False):
+        partial_init(self, FrontDriveFrontSteerEst, est_params, param_dict, state_keys,
+                     simulate_gt, state_dot_keys, additional_output_keys, use_torch_tensor=use_torch_tensor)
 
     def re_initialise(self):
         """
@@ -1004,6 +1058,7 @@ class RearDriveFrontSteer(AbstractDyn):
         state_keys (list): list of states string that are observed by sensor
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
         additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
+        use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False
 
     """
     # state dictionary for this model
@@ -1012,9 +1067,9 @@ class RearDriveFrontSteer(AbstractDyn):
     global_expected_keys = ["m", "iz", "lf", "lr", "ref", "rer",
                             "fr", "g", "sc_f", "sc_r", "sl_f", "sl_r", "af", "rho", "cd"]
 
-    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[]):
-        super(RearDriveFrontSteer, self).__init__(param_dict, state_keys=state_keys,
-                                                  state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys)
+    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[], use_torch_tensor=False):
+        super(RearDriveFrontSteer, self).__init__(param_dict, state_keys=state_keys, state_dot_keys=state_dot_keys,
+                                                  additional_output_keys=additional_output_keys, use_torch_tensor=use_torch_tensor)
         # specify expected dimensionality of input
         self.num_in = 3
 
@@ -1168,12 +1223,13 @@ class RearDriveFrontSteerEst(RearDriveFrontSteer):
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
         simulate_gt (bool): specify whether model is during the stage of simulating ground truth
         additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
+        use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False
 
     """
 
-    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False, additional_output_keys=[]):
-        partial_init(self, RearDriveFrontSteerEst, est_params, param_dict,
-                     state_keys, simulate_gt, state_dot_keys, additional_output_keys)
+    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False, additional_output_keys=[], use_torch_tensor=False):
+        partial_init(self, RearDriveFrontSteerEst, est_params, param_dict, state_keys, simulate_gt,
+                     state_dot_keys, additional_output_keys, use_torch_tensor=use_torch_tensor)
 
     def re_initialise(self):
         """
@@ -1211,6 +1267,7 @@ class RearDriveFrontSteerSubStateVel(AbstractDyn):
         state_keys (list): list of states string that are observed by sensor
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
         additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
+        use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False
 
     """
     # state dictionary for this model
@@ -1219,9 +1276,9 @@ class RearDriveFrontSteerSubStateVel(AbstractDyn):
     global_expected_keys = ["m", "iz", "lf", "lr", "ref",
                             "rer", "fr", "g", "sc_f", "sc_r", "sl_f", "sl_r", "da"]
 
-    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[]):
+    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[], use_torch_tensor=False):
         super(RearDriveFrontSteerSubStateVel, self).__init__(param_dict, state_keys=state_keys,
-                                                             state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys)
+                                                             state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys, use_torch_tensor=use_torch_tensor)
         # specify expected dimensionality of input
         self.num_in = 4
 
@@ -1377,12 +1434,13 @@ class RearDriveFrontSteerSubStateVelEst(RearDriveFrontSteerSubStateVel):
         state_dot_keys (list): list of derivative of states string that are observed by sensor; defaults to empty
         simulate_gt (bool): specify whether model is during the stage of simulating ground truth
         additional_output_keys (list): list of additional things that are observed by sensors; defaults to empty
+        use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False
 
     """
 
-    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False, additional_output_keys=[]):
-        partial_init(self, RearDriveFrontSteerSubStateVelEst, est_params, param_dict,
-                     state_keys, simulate_gt, state_dot_keys, additional_output_keys)
+    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False, additional_output_keys=[], use_torch_tensor=False):
+        partial_init(self, RearDriveFrontSteerSubStateVelEst, est_params, param_dict, state_keys,
+                     simulate_gt, state_dot_keys, additional_output_keys, use_torch_tensor=use_torch_tensor)
 
     def re_initialise(self):
         """
