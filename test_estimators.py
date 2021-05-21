@@ -29,7 +29,7 @@ def test_fit_data_rover(param_dict, num_mc=100, back_rotate=False, **kwargs):
 
     # create input vector for rover model
     cruise_time = 2.0
-    U = sample_linear(T, cruise_time, *[math.pi/6.0, 5.0])
+    U = sample_linear(T, cruise_time, True, *[math.pi/6.0, 5.0])
 
     kwargs['U'] = U
     kwargs['T'] = T
@@ -135,8 +135,9 @@ def test_pbgf(dyn_class, param_dict, timing_vars={}, input_vars={}, ode_vars={},
     sample_linear_flag = input_vars.get('sample_linear_flag', False)
     if sample_linear_flag:
         cruise_time = input_vars.get('cruise_time', 5.0)
+        decrease_flag = input_vars.get('decrease_flag', True)
         max_inputs_list = input_vars.get('max_inputs_list', [])
-        U = sample_linear(T, cruise_time, *max_inputs_list)
+        U = sample_linear(T, cruise_time, decrease_flag, *max_inputs_list)
     else:
         U = input_vars.get('U', np.array([]))
 
@@ -154,7 +155,8 @@ def test_pbgf(dyn_class, param_dict, timing_vars={}, input_vars={}, ode_vars={},
     # optionally, use ode solver for the dynamic system and compare the results
     if len(ode_vars):
         if 'T' in ode_vars and sample_linear_flag:
-            U = sample_linear(ode_vars['T'], cruise_time, *max_inputs_list)
+            U = sample_linear(ode_vars['T'], cruise_time,
+                              decrease_flag, *max_inputs_list)
             ode_vars['U'] = U
         solve_ivp_dyn_obj(dynamic_obj, **ode_vars)
 

@@ -1407,7 +1407,7 @@ class RearDriveFrontSteerSubStateVelEst(RearDriveFrontSteerSubStateVel):
         return partial_dxdt(self, RearDriveFrontSteerSubStateVelEst, state, u, param_dict)
 
 
-def sample_linear(T, cruise_time, *args):
+def sample_linear(T, cruise_time, decrease_flag, *args):
     """
     Create an example input vector for the dynamic model in which each phsical entity is linearly increased to the
     corresponding maximum in args then cruise at the value for the required time before decreasing back to zero
@@ -1416,6 +1416,7 @@ def sample_linear(T, cruise_time, *args):
         T (numpy array [nt x 1]): time instances for generating the inputs
         cruise_time (float): number of seconds to maintain maximum of each physical entity before linearly
             decreasing back to zero
+        decrease_flag (bool): whether to hold maximum value constant or ramp back to zero
         args (list): list of the maximum of each physical entity
 
     Returns:
@@ -1423,7 +1424,10 @@ def sample_linear(T, cruise_time, *args):
     """
     # create input vector
     U = np.zeros((len(args), len(T)))
-    t_after_accel = (T[-1] - cruise_time)/2.0
+    if decrease_flag:
+        t_after_accel = (T[-1] - cruise_time)/2.0
+    else:
+        t_after_accel = (T[-1] - cruise_time)/1.0
     t_before_deaccel = t_after_accel + cruise_time
 
     # fill in the input for each physical entity
