@@ -173,7 +173,7 @@ def test_pbgf(dyn_class, param_dict, timing_vars={}, input_vars={}, ode_vars={},
             dynamic_obj, order=2, lag_interval=lag_interval)[0]
 
     # plot the convergence of the parameters
-    plot_stuff(dynamic_obj, est_states, angle_states=configuration.get(
+    plot_stuff(dynamic_obj, est_states, angle_states=kwargs.get(
         'angle_states', []), encapsulated_gt=True, num_rows=[2, 2])
 
 
