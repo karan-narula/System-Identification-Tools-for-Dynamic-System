@@ -8,6 +8,13 @@ from car_dynamics import sample_linear, FrontSteered, RoverPartialDynEst, FrontD
 from estimators import kinematic_state_observer, fit_data_rover, fit_data_rover_dynobj
 from utilities import create_dyn_obj, create_filtered_estimates, create_smoothed_estimates, plot_stuff, solve_ivp_dyn_obj
 
+try:
+    import torch
+    torch_imported = True
+except ImportError:
+    print("Unable to import pytorch module")
+    torch_imported = False
+
 
 def test_fit_data_rover(param_dict, num_mc=100, back_rotate=False, **kwargs):
     """
@@ -112,6 +119,26 @@ def test_fit_data_rover(param_dict, num_mc=100, back_rotate=False, **kwargs):
     plt.show()
 
 
+def convert_stored_matrices_to_tensor(dynamic_obj):
+    """
+    Convert stored numpy arrays in dynamic object to tensor to avoid issue with operation between numpy and tensor
+
+    Args:
+        dynamic_obj (dyn_class obj): dynamic object
+
+    """
+    if dynamic_obj.Q is not None:
+        dynamic_obj.Q = torch.from_numpy(dynamic_obj.Q)
+    if dynamic_obj.Qu is not None:
+        dynamic_obj.Qu = torch.from_numpy(dynamic_obj.Qu)
+    if dynamic_obj.R is not None:
+        dynamic_obj.R = torch.from_numpy(dynamic_obj.R)
+    if len(dynamic_obj.outputs) > 0:
+        dynamic_obj.outputs = torch.from_numpy(dynamic_obj.outputs)
+    dynamic_obj.U = torch.from_numpy(dynamic_obj.U)
+    dynamic_obj.gt_states = torch.from_numpy(dynamic_obj.gt_states)
+
+
 def test_pbgf(dyn_class, param_dict, timing_vars={}, input_vars={}, ode_vars={}, **kwargs):
     """
     Test the PBGF in estimating the parameters and states.
@@ -160,13 +187,20 @@ def test_pbgf(dyn_class, param_dict, timing_vars={}, input_vars={}, ode_vars={},
             ode_vars['U'] = U
         solve_ivp_dyn_obj(dynamic_obj, **ode_vars)
 
+    # convert stored matrices to tensor if using torch tensor in estimator
+    use_torch_tensor = kwargs.get('use_torch_tensor', False)
+    if use_torch_tensor:
+        assert torch_imported, "Pytorch module was not successfully imported which prohibits the use of tensor in the test"
+        convert_stored_matrices_to_tensor(dynamic_obj)
+
     # get filtered or smoothed estimates
     operation = kwargs.get('operation', 'filter')
     assert operation in [
         'filter', 'smoother'], "Invalid estimation operation requested"
     if operation == 'filter':
         obs_freq = kwargs.get('obs_freq', float('inf'))
-        est_states = create_filtered_estimates(dynamic_obj, order=2, obs_freq=obs_freq)[0]
+        est_states = create_filtered_estimates(
+            dynamic_obj, order=2, obs_freq=obs_freq, use_torch_tensor=use_torch_tensor)[0]
     else:
         lag_interval = kwargs.get('lag_interval', 5)
         est_states = create_smoothed_estimates(
