@@ -167,13 +167,18 @@ class PointBasedFilter(object):
             elif self.order == 4:
                 x, L, W, WeightMat = self.cubature4(X1, P1)
 
+        ia = np.arange(n)
         if predict_flag:
-            # prediction step (step 5 of algorithm 5.1) by implementing equations 5.25, 5.34 and 5.35 (pages 105-106)
-            ia = np.arange(n)
             ib = np.arange(n, n+nq)
             ic = np.arange(n+nq, n+nq+nqu)
-            X, x, P, x1 = self.unscented_transformF(
+            # prediction step (step 5 of algorithm 5.1) by implementing equations 5.25, 5.34 and 5.35 (pages 105-106)
+            X2, x2, P2, x2_cent = self.unscented_transformF(
                 x, W, WeightMat, L, f, u, ia, ib, ic, additional_args_pm)
+        else:
+            X2 = X
+            P2 = P
+            x2 = x
+            x2_cent = x[ia, :] - X
 
         # update step (step 6 of algorithm 5.1) by implementing equations 5.36-5.41 (page 106)
         if len(y):
@@ -189,12 +194,12 @@ class PointBasedFilter(object):
                 x, W, WeightMat, L, h, u_next, ia, ip, len(y), additional_args_om)
             if self.use_torch_tensor:
                 # transformed cross-covariance (equation 5.38)
-                Pxy = torch.matmul(torch.matmul(x1, WeightMat), z2.T)
+                Pxy = torch.matmul(torch.matmul(x2_cent, WeightMat), z2.T)
                 # Kalman gain
                 K = torch.matmul(Pxy, torch.linalg.inv(Pz))
             else:
                 # transformed cross-covariance (equation 5.38)
-                Pxy = np.matmul(np.matmul(x1, WeightMat), z2.T)
+                Pxy = np.matmul(np.matmul(x2_cent, WeightMat), z2.T)
                 # Kalman gain
                 K = np.matmul(Pxy, np.linalg.inv(Pz))
             # state update (equation 5.40)
@@ -203,15 +208,18 @@ class PointBasedFilter(object):
                 innovation[key, :] = innovation_bound_func[key](
                     innovation[key, :])
             if self.use_torch_tensor:
-                X += torch.matmul(K, innovation)
+                X3 = X2 + torch.matmul(K, innovation)
                 # covariance update (equation 5.41)
-                P -= torch.matmul(K, Pxy.T)
+                P3 = P2 - torch.matmul(K, Pxy.T)
             else:
-                X += np.matmul(K, innovation)
+                X3 = X2 + np.matmul(K, innovation)
                 # covariance update (equation 5.41)
-                P -= np.matmul(K, Pxy.T)
+                P3 = P2 - np.matmul(K, Pxy.T)
+        else:
+            X3 = X2
+            P3 = P2
 
-        return X, P
+        return X3, P3
 
     def unscented_transformH(self, x, W, WeightMat, L, f, u, ia, iq, n, additional_args):
         """
