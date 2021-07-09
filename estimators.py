@@ -86,11 +86,13 @@ class PointBasedFilter(object):
             and 'CKF' for Cubature Filter
         order (int): Order of accuracy for integration rule. Currently, there are two choices: 2 and 4
         use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False. User has
-        be careful and make sure that all other inputs are tensors as well
+            be careful and make sure that all other inputs are tensors as well
+        tensor_device (bool): device in which the tensor is located and to be operated (CPU or GPU); defaults
+            to None which refers to CPU
 
     """
 
-    def __init__(self, method, order, use_torch_tensor=False):
+    def __init__(self, method, order, use_torch_tensor=False, tensor_device=None):
         methods = ['UKF', 'CKF']
         orders = [2, 4]
 
@@ -103,6 +105,11 @@ class PointBasedFilter(object):
         # check if torch library was successfully imported
         if self.use_torch_tensor:
             assert torch_imported, "Pytorch module was not successfully imported which prohibits the use of tensor with this library"
+            if tensor_device is None:
+                tensor_device = torch.device("cpu")
+            assert isinstance(
+                tensor_device, torch.device), "Supplied tensor_device is a not a torch device object"
+            self.tensor_device = tensor_device
 
     def predict_and_or_update(self, X, P, f, h, Q, R, u, y, u_next=None, Qu=None, additional_args_pm=[], additional_args_om=[], innovation_bound_func={}, predict_flag=True):
         """
@@ -139,13 +146,14 @@ class PointBasedFilter(object):
         else:
             nqu = 0
             if self.use_torch_tensor:
-                Qu = torch.zeros((nqu, nqu), dtype=X.dtype)
+                Qu = torch.zeros((nqu, nqu), dtype=X.dtype,
+                                 device=self.tensor_device)
             else:
                 Qu = np.zeros((nqu, nqu))
         nr = R.shape[0]
         if self.use_torch_tensor:
             X1 = torch.cat(
-                (X, torch.zeros((nq+nqu+nr, 1), dtype=X.dtype)), dim=0)
+                (X, torch.zeros((nq+nqu+nr, 1), dtype=X.dtype, device=self.tensor_device)), dim=0)
             P1 = torch.block_diag(P, Q, Qu, R)
         else:
             X1 = np.concatenate((X, np.zeros((nq+nqu+nr, 1))), axis=0)
@@ -245,8 +253,8 @@ class PointBasedFilter(object):
 
         """
         if self.use_torch_tensor:
-            Y = torch.zeros((n, 1), dtype=x.dtype)
-            y = torch.zeros((n, L), dtype=x.dtype)
+            Y = torch.zeros((n, 1), dtype=x.dtype, device=self.tensor_device)
+            y = torch.zeros((n, L), dtype=x.dtype, device=self.tensor_device)
         else:
             Y = np.zeros((n, 1))
             y = np.zeros((n, L))
@@ -293,7 +301,8 @@ class PointBasedFilter(object):
         """
         order = len(ia)
         if self.use_torch_tensor:
-            Y = torch.zeros((order, 1), dtype=x.dtype)
+            Y = torch.zeros((order, 1), dtype=x.dtype,
+                            device=self.tensor_device)
         else:
             Y = np.zeros((order, 1))
         y = x
@@ -303,8 +312,8 @@ class PointBasedFilter(object):
                 y[ia, k] = f(x[ia, k], u, x[iq, k],
                              x[iqu, k], *additional_args)
             else:
-                y[ia, k] = f(x[ia, k], u, x[iq, k], torch.zeros(
-                    u.shape, dtype=x.dtype) if self.use_torch_tensor else np.zeros(u.shape), *additional_args)
+                y[ia, k] = f(x[ia, k], u, x[iq, k], torch.zeros(u.shape, dtype=x.dtype, device=self.tensor_device)
+                             if self.use_torch_tensor else np.zeros(u.shape), *additional_args)
             # Calculating mean (equation 5.34)
             if self.use_torch_tensor:
                 Y += W[0, k]*y[np.arange(order), k:k+1]
@@ -344,8 +353,8 @@ class PointBasedFilter(object):
             (np.array([[Params[0]]]), np.matlib.repmat(Params[1], 1, 2*n)), axis=1)
         WeightMat = np.diag(np.squeeze(W))
         if self.use_torch_tensor:
-            W = torch.from_numpy(W)
-            WeightMat = torch.from_numpy(WeightMat)
+            W = torch.from_numpy(W).to(self.tensor_device)
+            WeightMat = torch.from_numpy(WeightMat).to(self.tensor_device)
 
         # first perform SVD to get the square root matrix (step 3 of algorithm 5.1, equation 5.22)
         if self.use_torch_tensor:
@@ -365,7 +374,7 @@ class PointBasedFilter(object):
 
         # step 4 of algorithm 5.1 equation 5.24
         if self.use_torch_tensor:
-            temp = torch.from_numpy(temp)
+            temp = torch.from_numpy(temp).to(self.tensor_device)
             Y = torch.tile(X, (1, L))
             x = Y + torch.matmul(sqP, temp)
         else:
@@ -404,8 +413,8 @@ class PointBasedFilter(object):
             (4-n)/18.0, 1, 2*n), np.matlib.repmat(1.0/36.0, 1, 2*n**2-2*n)), axis=1)
         WeightMat = np.diag(np.squeeze(W))
         if self.use_torch_tensor:
-            W = torch.from_numpy(W)
-            WeightMat = torch.from_numpy(WeightMat)
+            W = torch.from_numpy(W).to(self.tensor_device)
+            WeightMat = torch.from_numpy(WeightMat).to(self.tensor_device)
 
         # first perform SVD to get the square root matrix (step 3 of algorithm 5.1, equation 5.22)
         if self.use_torch_tensor:
@@ -426,7 +435,7 @@ class PointBasedFilter(object):
 
         # step 4 of algorithm 5.1 equation 5.24
         if self.use_torch_tensor:
-            temp = torch.from_numpy(temp)
+            temp = torch.from_numpy(temp).to(self.tensor_device)
             Y = torch.tile(X, (1, 2*n+1))
             x = Y + torch.matmul(sqP, temp)
         else:
@@ -447,7 +456,7 @@ class PointBasedFilter(object):
 
         # step 4 of algorithm 5.1 equation 5.24
         if self.use_torch_tensor:
-            temp1 = torch.from_numpy(temp1)
+            temp1 = torch.from_numpy(temp1).to(self.tensor_device)
             Y = torch.tile(X, (1, 2*n**2 - 2*n))
             x = torch.cat((x, Y + torch.matmul(sqP, temp1)), dim=1)
         else:
@@ -488,8 +497,8 @@ class PointBasedFilter(object):
         W = np.matlib.repmat(1.0/L, 1, L)
         WeightMat = np.diag(np.squeeze(W))
         if self.use_torch_tensor:
-            W = torch.from_numpy(W)
-            WeightMat = torch.from_numpy(WeightMat)
+            W = torch.from_numpy(W).to(self.tensor_device)
+            WeightMat = torch.from_numpy(WeightMat).to(self.tensor_device)
 
         # first perform SVD to get the square root matrix (step 3 of algorithm 5.1, equation 5.22)
         if self.use_torch_tensor:
@@ -510,7 +519,7 @@ class PointBasedFilter(object):
 
         # step 4 of algorithm 5.1 equation 5.24
         if self.use_torch_tensor:
-            temp = torch.from_numpy(temp)
+            temp = torch.from_numpy(temp).to(self.tensor_device)
             Y = torch.tile(X, (1, L))
             x = Y + torch.matmul(sqP, temp)
         else:
@@ -546,8 +555,8 @@ class PointBasedFilter(object):
             n+2)**2), 1, 2*n), np.matlib.repmat(1.0/((n+2.0)**2), 1, 2*n**2-2*n)), axis=1)
         WeightMat = np.diag(np.squeeze(W))
         if self.use_torch_tensor:
-            W = torch.from_numpy(W)
-            WeightMat = torch.from_numpy(WeightMat)
+            W = torch.from_numpy(W).to(self.tensor_device)
+            WeightMat = torch.from_numpy(WeightMat).to(self.tensor_device)
 
         # first perform SVD to get the square root matrix (step 3 of algorithm 5.1, equation 5.22)
         if self.use_torch_tensor:
@@ -568,7 +577,7 @@ class PointBasedFilter(object):
 
         # step 4 of algorithm 5.1 equation 5.24
         if self.use_torch_tensor:
-            temp = torch.from_numpy(temp)
+            temp = torch.from_numpy(temp).to(self.tensor_device)
             Y = torch.tile(X, (1, 2*n+1))
             x = Y + torch.matmul(sqP, temp)
         else:
@@ -590,7 +599,7 @@ class PointBasedFilter(object):
 
         # step 4 of algorithm 5.1 equation 5.24
         if self.use_torch_tensor:
-            temp1 = torch.from_numpy(temp1)
+            temp1 = torch.from_numpy(temp1).to(self.tensor_device)
             Y = torch.tile(X, (1, 2*n**2 - 2*n))
             x = torch.cat((x, Y + torch.matmul(sqP, temp1)), dim=1)
         else:
