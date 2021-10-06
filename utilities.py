@@ -306,7 +306,7 @@ def solve_ivp_dyn_obj(dynamic_obj, T=None, U=None, plot_result=False, plot_euler
     return ivp_result
 
 
-def create_filtered_estimates(dynamic_obj, method='CKF', order=2, obs_freq=float('inf'), use_torch_tensor=False):
+def create_filtered_estimates(dynamic_obj, method='CKF', order=2, obs_freq=float('inf'), use_torch_tensor=False, tensor_device=None):
     """
     Generate mean and covariance of filtered distribution at various times for the problem defined by the dynamic object.
 
@@ -316,6 +316,8 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2, obs_freq=float
         order (int): Order of accuracy for integration rule, see estimators.py for orders currently implemented; defaults to 2
         obs_freq (float): Frequency of using observations stored in dynamic object for update step
         use_torch_tensor (bool): whether to test the estimator with torch tensor instead of numpy arrays; defaults to False
+        tensor_device (bool): device in which the tensor is located and to be operated (CPU or GPU); defaults
+            to None which refers to CPU
 
     Returns:
         est_states (numpy array [dynamic_obj.num_states x nt]): filtered mean estimates of the states at different time instances
@@ -325,7 +327,8 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2, obs_freq=float
     """
 
     # create instance of the filter
-    pbgf = PointBasedFilter(method, order, use_torch_tensor=use_torch_tensor)
+    pbgf = PointBasedFilter(
+        method, order, use_torch_tensor=use_torch_tensor, tensor_device=tensor_device)
 
     if hasattr(dynamic_obj, 'innovation_bound_func'):
         innovation_bound_func = dynamic_obj.innovation_bound_func
@@ -348,8 +351,8 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2, obs_freq=float
         # check whether import was successful
         assert torch_imported, "Pytorch module was not successfully imported which prohibits the use of tensor with this library"
 
-        X = torch.from_numpy(X)
-        P = torch.from_numpy(P)
+        X = torch.from_numpy(X).to(tensor_device)
+        P = torch.from_numpy(P).to(tensor_device)
 
     for i in range(1, num_sol):
         # get output for desired frquency
@@ -366,8 +369,8 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2, obs_freq=float
 
         # store result from latest prediction/update step
         if use_torch_tensor:
-            est_states[:, i:i+1] = X.detach().numpy()
-            cov_states[:, :, i] = P.detach().numpy()
+            est_states[:, i:i+1] = X.detach().cpu().numpy()
+            cov_states[:, :, i] = P.detach().cpu().numpy()
         else:
             est_states[:, i:i+1] = X.copy()
             cov_states[:, :, i] = P.copy()
