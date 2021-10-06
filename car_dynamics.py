@@ -253,7 +253,7 @@ class AbstractDyn(object):
             output (numpy array [len(self.additional_output_keys) x 1): observed additional output
         """
         if self.use_torch_tensor:
-            return torch.empty(0)
+            return torch.empty(0, device=state.device)
         else:
             return np.array([])
 
@@ -272,7 +272,12 @@ class AbstractDyn(object):
 
         """
         if self.use_torch_tensor:
-            return torch.cat((state[self.state_indices], self.dxdt(state, u, param_dict)[0, self.state_dot_indices], self.additional_output_model(state, u, param_dict)))
+            if len(self.state_dot_indices):
+                dxdt = self.dxdt(state, u, param_dict)
+                state_dot_out = dxdt[0, self.state_dot_indices]
+            else:
+                state_dot_out = torch.empty(0).to(state.device)
+            return torch.cat((state[self.state_indices], state_dot_out, self.additional_output_model(state, u, param_dict)))
         else:
             return np.concatenate((state[self.state_indices], self.dxdt(state, u, param_dict)[0, self.state_dot_indices], self.additional_output_model(state, u, param_dict)))
 
@@ -653,7 +658,7 @@ def partial_dxdt(obj, class_type, state, u, param_dict):
 
     state_dot = super(class_type, obj).dxdt(state, u, param_dict)
     if obj.use_torch_tensor:
-        return torch.cat((state_dot, torch.zeros((1, len(obj.est_params)), dtype=state_dot.dtype)), dim=1)
+        return torch.cat((state_dot, torch.zeros((1, len(obj.est_params)), device=state_dot.device, dtype=state_dot.dtype)), dim=1)
     else:
         return np.concatenate((state_dot, np.zeros((1, len(obj.est_params)))), axis=1)
 
