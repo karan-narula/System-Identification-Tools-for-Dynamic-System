@@ -76,11 +76,8 @@ class AbstractDyn(object):
         if 'tensor_compliance' not in self.__dir__():
             self.tensor_compliance = False
 
-        # check if torch library was successfully imported or if the dynamic library is torch compliant
-        if self.use_torch_tensor:
-            assert torch_imported, "Pytorch module was not successfully imported which prohibits the use of tensor with this library"
-
-            assert self.tensor_compliance, "Dynamic class is not yet tensor compliant"
+        # assert if dynamic class is not tensor compliant
+        self.assert_tensor_compliance()
 
         # check if param dictionary is valid
         assert self.check_param_dict(), "Parameter dictionary does not contain all requried keys"
@@ -117,6 +114,15 @@ class AbstractDyn(object):
                 return False
 
         return True
+
+    def assert_tensor_compliance(self):
+        """
+        Check if torch library was successfully imported or if the dynamic library is torch compliant
+        """
+        if self.use_torch_tensor:
+            assert torch_imported, "Pytorch module was not successfully imported which prohibits the use of tensor with this library"
+
+            assert self.tensor_compliance, "Dynamic class is not yet tensor compliant"
 
     def sample_nlds(self, z0, U, T, Q=None, P0=None, R=None, Qu=None, store_variables=True, overwrite_keys=[], overwrite_vals=[]):
         """
@@ -636,6 +642,9 @@ def re_initialise(obj):
         # retrieve initially proved direction on usage of torch tensor
         obj.use_torch_tensor = obj.later_use_torch_tensor
         del obj.later_use_torch_tensor
+
+        # assert if dynamic class is not tensor compliant
+        obj.assert_tensor_compliance()
 
 
 def partial_dxdt(obj, class_type, state, u, param_dict):
