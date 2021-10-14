@@ -658,6 +658,8 @@ def partial_dxdt(obj, class_type, state, u, param_dict):
 
     state_dot = super(class_type, obj).dxdt(state, u, param_dict)
     if obj.use_torch_tensor:
+        for i, est_param in enumerate(obj.est_params):
+            param_dict[est_param] = param_dict[est_param].cpu().item()
         return torch.cat((state_dot, torch.zeros((1, len(obj.est_params)), device=state_dot.device, dtype=state_dot.dtype)), dim=1)
     else:
         return np.concatenate((state_dot, np.zeros((1, len(obj.est_params)))), axis=1)
