@@ -119,24 +119,47 @@ def test_fit_data_rover(param_dict, num_mc=100, back_rotate=False, **kwargs):
     plt.show()
 
 
-def convert_stored_matrices_to_tensor(dynamic_obj):
+def convert_stored_matrices_to_tensor(dynamic_obj, tensor_device):
     """
     Convert stored numpy arrays in dynamic object to tensor to avoid issue with operation between numpy and tensor
+
+    Args:
+        dynamic_obj (dyn_class obj): dynamic object
+        tensor_device (device): device in which the tensor must be located and operated (CPU or GPU)
+
+    """
+    if dynamic_obj.Q is not None:
+        dynamic_obj.Q = torch.from_numpy(dynamic_obj.Q).to(tensor_device)
+    if dynamic_obj.Qu is not None:
+        dynamic_obj.Qu = torch.from_numpy(dynamic_obj.Qu).to(tensor_device)
+    if dynamic_obj.R is not None:
+        dynamic_obj.R = torch.from_numpy(dynamic_obj.R).to(tensor_device)
+    if len(dynamic_obj.outputs) > 0:
+        dynamic_obj.outputs = torch.from_numpy(
+            dynamic_obj.outputs).to(tensor_device)
+    dynamic_obj.U = torch.from_numpy(dynamic_obj.U).to(tensor_device)
+    dynamic_obj.gt_states = torch.from_numpy(
+        dynamic_obj.gt_states).to(tensor_device)
+
+
+def convert_stored_matrices_to_numpy(dynamic_obj):
+    """
+    Convert stored tensors in dynamic object to numpy arrays to enable use with the rest of numpy compliant functions
 
     Args:
         dynamic_obj (dyn_class obj): dynamic object
 
     """
     if dynamic_obj.Q is not None:
-        dynamic_obj.Q = torch.from_numpy(dynamic_obj.Q)
+        dynamic_obj.Q = dynamic_obj.Q.detach().cpu().numpy()
     if dynamic_obj.Qu is not None:
-        dynamic_obj.Qu = torch.from_numpy(dynamic_obj.Qu)
+        dynamic_obj.Qu = dynamic_obj.Qu.detach().cpu().numpy()
     if dynamic_obj.R is not None:
-        dynamic_obj.R = torch.from_numpy(dynamic_obj.R)
+        dynamic_obj.R = dynamic_obj.R.detach().cpu().numpy()
     if len(dynamic_obj.outputs) > 0:
-        dynamic_obj.outputs = torch.from_numpy(dynamic_obj.outputs)
-    dynamic_obj.U = torch.from_numpy(dynamic_obj.U)
-    dynamic_obj.gt_states = torch.from_numpy(dynamic_obj.gt_states)
+        dynamic_obj.outputs = dynamic_obj.outputs.detach().cpu().numpy()
+    dynamic_obj.U = dynamic_obj.U.detach().cpu().numpy()
+    dynamic_obj.gt_states = dynamic_obj.gt_states.detach().cpu().numpy()
 
 
 def test_pbgf(dyn_class, param_dict, timing_vars={}, input_vars={}, ode_vars={}, **kwargs):
@@ -189,9 +212,10 @@ def test_pbgf(dyn_class, param_dict, timing_vars={}, input_vars={}, ode_vars={},
 
     # convert stored matrices to tensor if using torch tensor in estimator
     use_torch_tensor = kwargs.get('use_torch_tensor', False)
+    tensor_device = kwargs.get('tensor_device', torch.device("cpu"))
     if use_torch_tensor:
         assert torch_imported, "Pytorch module was not successfully imported which prohibits the use of tensor in the test"
-        convert_stored_matrices_to_tensor(dynamic_obj)
+        convert_stored_matrices_to_tensor(dynamic_obj, tensor_device)
 
     # get filtered or smoothed estimates
     operation = kwargs.get('operation', 'filter')
@@ -200,11 +224,14 @@ def test_pbgf(dyn_class, param_dict, timing_vars={}, input_vars={}, ode_vars={},
     if operation == 'filter':
         obs_freq = kwargs.get('obs_freq', float('inf'))
         est_states = create_filtered_estimates(
-            dynamic_obj, order=2, obs_freq=obs_freq, use_torch_tensor=use_torch_tensor)[0]
+            dynamic_obj, order=2, obs_freq=obs_freq, use_torch_tensor=use_torch_tensor, tensor_device=tensor_device)[0]
     else:
         lag_interval = kwargs.get('lag_interval', 5)
         est_states = create_smoothed_estimates(
             dynamic_obj, order=2, lag_interval=lag_interval)[0]
+
+    if use_torch_tensor and tensor_device.type == "cuda":
+        convert_stored_matrices_to_numpy(dynamic_obj)
 
     # plot the convergence of the parameters
     plot_stuff(dynamic_obj, est_states, angle_states=kwargs.get(
@@ -340,6 +367,7 @@ if __name__ == '__main__':
 
     # test the same thing as above but with tensor instead of numpy
     configuration['use_torch_tensor'] = True
+    configuration['operation'] = 'filter'
     test_pbgf(OneWheelFrictionEst, param_dict, timing_vars=timing_vars,
               input_vars=input_vars, ode_vars=ode_vars, **configuration)
 
