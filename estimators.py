@@ -42,7 +42,8 @@ def sample_gaussian(mu, Sigma, N=1):
     return M
 
 
-def kinematic_state_observer(initial_cond, yaw_rates, inertial_accs, long_vs, T, alpha):
+def kinematic_state_observer(initial_cond, yaw_rates, inertial_accs, long_vs,
+                             T, alpha):
     """
     Not working yet!
     """
@@ -57,22 +58,23 @@ def kinematic_state_observer(initial_cond, yaw_rates, inertial_accs, long_vs, T,
 
     for i in range(1, num_sol):
         # current yaw rate
-        yaw_rate = yaw_rates[i-1]
+        yaw_rate = yaw_rates[i - 1]
 
         # put yaw_rate in A matrix
         A[0, 1] = yaw_rate
         A[1, 0] = -yaw_rate
 
         # gain matrix based on yaw rate
-        K = 1.0*np.array([2*alpha*math.fabs(yaw_rate),
-                          (alpha**2 - 1)*yaw_rate])
+        K = 1.0 * np.array(
+            [2 * alpha * math.fabs(yaw_rate), (alpha**2 - 1) * yaw_rate])
 
         # state observer equation
         states_dot = np.matmul(
-            (A - np.matmul(K, C)), states[:, i-1]) + np.matmul(B, inertial_accs[:, i-1]) + K*long_vs[i-1]
+            (A - np.matmul(K, C)), states[:, i - 1]) + np.matmul(
+                B, inertial_accs[:, i - 1]) + K * long_vs[i - 1]
 
-        dt = T[i] - T[i-1]
-        states[:, i] = states[:, i-1] + dt*states_dot
+        dt = T[i] - T[i - 1]
+        states[:, i] = states[:, i - 1] + dt * states_dot
 
     return states
 
@@ -82,7 +84,7 @@ class PointBasedFilter(object):
     Class for performing UKF/CKF prediction or update
 
     Args:
-        method (str): The method for filtering algorithm, there are two choices: 'UKF' for unscented Filter 
+        method (str): The method for filtering algorithm, there are two choices: 'UKF' for unscented Filter
             and 'CKF' for Cubature Filter
         order (int): Order of accuracy for integration rule. Currently, there are two choices: 2 and 4
         use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False. User has
@@ -114,10 +116,25 @@ class PointBasedFilter(object):
             if tensor_device is None:
                 tensor_device = torch.device("cpu")
             assert isinstance(
-                tensor_device, torch.device), "Supplied tensor_device is a not a torch device object"
+                tensor_device, torch.device
+            ), "Supplied tensor_device is a not a torch device object"
             self.tensor_device = tensor_device
 
-    def predict_and_or_update(self, X, P, f, h, Q, R, u, y, u_next=None, Qu=None, additional_args_pm=[], additional_args_om=[], innovation_bound_func={}, predict_flag=True):
+    def predict_and_or_update(self,
+                              X,
+                              P,
+                              f,
+                              h,
+                              Q,
+                              R,
+                              u,
+                              y,
+                              u_next=None,
+                              Qu=None,
+                              additional_args_pm=[],
+                              additional_args_om=[],
+                              innovation_bound_func={},
+                              predict_flag=True):
         """
         Perform one iteration of prediction and/or update.
         algorithm reference: Algorithm 5.1, page 104 of "Compressed Estimation in Coupled High-dimensional Processes"
@@ -183,8 +200,8 @@ class PointBasedFilter(object):
 
         ia = np.arange(n)
         if predict_flag:
-            ib = np.arange(n, n+nq)
-            ic = np.arange(n+nq, n+nq+nqu)
+            ib = np.arange(n, n + nq)
+            ic = np.arange(n + nq, n + nq + nqu)
             # prediction step (step 5 of algorithm 5.1) by implementing equations 5.25, 5.34 and 5.35 (pages 105-106)
             X2, x2, P2, x2_cent = self.unscented_transformF(
                 x, W, WeightMat, L, f, u, ia, ib, ic, additional_args_pm)
@@ -198,14 +215,16 @@ class PointBasedFilter(object):
         if len(y):
             # check if innovation keys is valid
             for key in innovation_bound_func:
-                assert key in range(len(
-                    y)), "Key of innovation bound function dictionary should be within the length of the output"
-                assert callable(
-                    innovation_bound_func[key]), "Innovation bound function is not callable"
+                assert key in range(
+                    len(y)
+                ), "Key of innovation bound function dictionary should be within the length of the output"
+                assert callable(innovation_bound_func[key]
+                                ), "Innovation bound function is not callable"
 
-            ip = np.arange(n+nq+nqu, n+nq+nqu+nr)
-            Z, _, Pz, z2 = self.unscented_transformH(
-                x, W, WeightMat, L, h, u_next, ia, ip, len(y), additional_args_om)
+            ip = np.arange(n + nq + nqu, n + nq + nqu + nr)
+            Z, _, Pz, z2 = self.unscented_transformH(x, W, WeightMat, L, h,
+                                                     u_next, ia, ip, len(y),
+                                                     additional_args_om)
             if self.use_torch_tensor:
                 # transformed cross-covariance (equation 5.38)
                 Pxy = torch.matmul(torch.matmul(x2_cent, WeightMat), z2.T)
@@ -235,7 +254,8 @@ class PointBasedFilter(object):
 
         return X3, P3
 
-    def unscented_transformH(self, x, W, WeightMat, L, f, u, ia, iq, n, additional_args):
+    def unscented_transformH(self, x, W, WeightMat, L, f, u, ia, iq, n,
+                             additional_args):
         """
         Function to propagate sigma/cubature points through observation function.
 
@@ -269,9 +289,9 @@ class PointBasedFilter(object):
             y[:, k] = f(x[ia, k], u, x[iq, k], *additional_args)
             # Calculating mean (equation 5.37)
             if self.use_torch_tensor:
-                Y += W[0, k]*y[:, k:k+1]
+                Y += W[0, k] * y[:, k:k + 1]
             else:
-                Y += W.flat[k]*y[:, k:k+1]
+                Y += W.flat[k] * y[:, k:k + 1]
 
         # Calculating covariance (equation 5.39)
         y1 = y - Y
@@ -282,7 +302,8 @@ class PointBasedFilter(object):
 
         return Y, y, P, y1
 
-    def unscented_transformF(self, x, W, WeightMat, L, f, u, ia, iq, iqu, additional_args):
+    def unscented_transformF(self, x, W, WeightMat, L, f, u, ia, iq, iqu,
+                             additional_args):
         """
         Function to propagate sigma/cubature points through process model function.
 
@@ -315,16 +336,16 @@ class PointBasedFilter(object):
         # Propagating sigma/cubature points through function (equation 5.25)
         for k in range(L):
             if len(iqu):
-                y[ia, k] = f(x[ia, k], u, x[iq, k],
-                             x[iqu, k], *additional_args)
+                y[ia, k] = f(x[ia, k], u, x[iq, k], x[iqu, k],
+                             *additional_args)
             else:
                 y[ia, k] = f(x[ia, k], u, x[iq, k], torch.zeros(u.shape, dtype=x.dtype, device=self.tensor_device)
                              if self.use_torch_tensor else np.zeros(u.shape), *additional_args)
             # Calculating mean (equation 5.34)
             if self.use_torch_tensor:
-                Y += W[0, k]*y[np.arange(order), k:k+1]
+                Y += W[0, k] * y[np.arange(order), k:k + 1]
             else:
-                Y += W.flat[k]*y[np.arange(order), k:k+1]
+                Y += W.flat[k] * y[np.arange(order), k:k + 1]
 
         # Calculating covariance (equation 5.35)
         y1 = y[np.arange(order), :] - Y
@@ -626,7 +647,7 @@ class PointBasedFilter(object):
 
     def verifyTransformedSigma(self, x, WeightMat, X, P):
         """
-        Verify if the transformed sigma/cubature point captures the mean and covariance of the 
+        Verify if the transformed sigma/cubature point captures the mean and covariance of the
         target Gaussian distribution
 
         Args:
@@ -648,17 +669,19 @@ class PointBasedFilter(object):
             W = np.diag(WeightMat)
             x_copy = x
         for i in range(x.shape[1]):
-            sigma_mean += W[i]*x_copy[:, i:i+1]
+            sigma_mean += W[i] * x_copy[:, i:i + 1]
 
         if self.use_torch_tensor:
-            sigma_cov = np.matmul(np.matmul(
-                (x_copy - sigma_mean), WeightMat.detach().numpy()), np.transpose(x_copy - sigma_mean))
+            sigma_cov = np.matmul(
+                np.matmul((x_copy - sigma_mean),
+                          WeightMat.detach().numpy()),
+                np.transpose(x_copy - sigma_mean))
 
             mean_close = np.allclose(X.detach().numpy(), sigma_mean)
             cov_close = np.allclose(P.detach().numpy(), sigma_cov)
         else:
-            sigma_cov = np.matmul(
-                np.matmul((x_copy - sigma_mean), WeightMat), np.transpose(x_copy - sigma_mean))
+            sigma_cov = np.matmul(np.matmul((x_copy - sigma_mean), WeightMat),
+                                  np.transpose(x_copy - sigma_mean))
 
             mean_close = np.allclose(X, sigma_mean)
             cov_close = np.allclose(P, sigma_cov)
@@ -685,9 +708,9 @@ class PointBasedFilter(object):
             W_copy = W
 
         # check moment and cross moment of each order
-        for i in range(1, order+1):
+        for i in range(1, order + 1):
             # find all possible combinations for adding up to order i
-            arr = [0]*n
+            arr = [0] * n
             outputs = []
             findCombinationsUtil(arr, 0, i, i, outputs)
             for output in outputs:
@@ -700,10 +723,15 @@ class PointBasedFilter(object):
                 elem_combinations = itertools.permutations(
                     range(n), len(output))
                 for elem_combination in elem_combinations:
-                    moment = (
-                        W_copy*np.prod(x_copy[elem_combination, :]**np.matlib.repmat(output, L, 1).T, axis=0)).sum()
-                    assert np.isclose(moment, theoretical_moment), "The {}th moment with element {} and power {} yielded value of {} instead of {}".format(
-                        i, elem_combination, output, moment, theoretical_moment)
+                    moment = (W_copy *
+                              np.prod(x_copy[elem_combination, :]**
+                                      np.matlib.repmat(output, L, 1).T,
+                                      axis=0)).sum()
+                    assert np.isclose(
+                        moment, theoretical_moment
+                    ), "The {}th moment with element {} and power {} yielded value of {} instead of {}".format(
+                        i, elem_combination, output, moment,
+                        theoretical_moment)
 
     def stdGaussMoment(self, order):
         """
@@ -728,7 +756,7 @@ class PointBasedFilter(object):
 
 def findCombinationsUtil(arr, index, num, reducedNum, output):
     """
-    Find all combinations of < n numbers from 1 to num with repetition that add up to reducedNum 
+    Find all combinations of < n numbers from 1 to num with repetition that add up to reducedNum
 
     Args:
         arr (list size n): current items that add up to <= reducedNum (in the 0th recursion)
@@ -749,15 +777,15 @@ def findCombinationsUtil(arr, index, num, reducedNum, output):
         return
 
     # find pervious number stored
-    prev = 1 if (index == 0) else arr[index-1]
+    prev = 1 if (index == 0) else arr[index - 1]
 
     # start loop from previous number
-    for k in range(prev, num+1):
+    for k in range(prev, num + 1):
         # next element of array
         arr[index] = k
 
         # recursively try this combination with reduced number
-        findCombinationsUtil(arr, index+1, num, reducedNum-k, output)
+        findCombinationsUtil(arr, index + 1, num, reducedNum - k, output)
 
 
 class PointBasedFixedLagSmoother(PointBasedFilter):
@@ -771,7 +799,6 @@ class PointBasedFixedLagSmoother(PointBasedFilter):
         lag_interval (int): lag interval for producing smoothed estimate
 
     """
-
     def __init__(self, method, order, lag_interval):
         super(PointBasedFixedLagSmoother, self).__init__(method, order)
 
@@ -801,7 +828,19 @@ class PointBasedFixedLagSmoother(PointBasedFilter):
         self.filter_density.append((X.copy(), P.copy()))
         self.latest_action = 'update'
 
-    def predict_and_or_update(self, f, h, Q, R, u, y, u_next=None, Qu=None, additional_args_pm=[], additional_args_om=[], innovation_bound_func={}, predict_flag=True):
+    def predict_and_or_update(self,
+                              f,
+                              h,
+                              Q,
+                              R,
+                              u,
+                              y,
+                              u_next=None,
+                              Qu=None,
+                              additional_args_pm=[],
+                              additional_args_om=[],
+                              innovation_bound_func={},
+                              predict_flag=True):
         """
         Perform one iteration of prediction and/or update + backward pass to produce smoothed estimate when applicable.
         algorithm reference: Algorithm 10.6, page 162 of "Bayesian Filtering and Smoothing"
@@ -830,8 +869,8 @@ class PointBasedFixedLagSmoother(PointBasedFilter):
         """
         assert self.init_cond_set, "User must specify the initial condition separately"
         # pre-allocate fixed-interval results
-        X_fi = [[]]*(self.lag_interval+1)
-        P_fi = [[]]*(self.lag_interval+1)
+        X_fi = [[]] * (self.lag_interval + 1)
+        P_fi = [[]] * (self.lag_interval + 1)
 
         # create augmented system of the states and the noises (step 1 of algorithm 5.1, equation 5.42)
         n = self.n
@@ -844,14 +883,16 @@ class PointBasedFixedLagSmoother(PointBasedFilter):
         nr = R.shape[0]
         if self.latest_action == 'update':
             X1 = np.concatenate(
-                (self.filter_density[-1][0], self.filter_density[-1][0], np.zeros((nq+nqu+nr, 1))), axis=0)
-            P1 = block_diag(
-                self.filter_density[-1][1], self.filter_density[-1][1], Q, Qu, R)
-            P1[0:n, n:2*n] = self.filter_density[-1][1]
-            P1[n:2*n, 0:n] = self.filter_density[-1][1]
+                (self.filter_density[-1][0], self.filter_density[-1][0],
+                 np.zeros((nq + nqu + nr, 1))),
+                axis=0)
+            P1 = block_diag(self.filter_density[-1][1],
+                            self.filter_density[-1][1], Q, Qu, R)
+            P1[0:n, n:2 * n] = self.filter_density[-1][1]
+            P1[n:2 * n, 0:n] = self.filter_density[-1][1]
         else:
-            X1 = np.concatenate(
-                (self.prevX, np.zeros((nq+nqu+nr, 1))), axis=0)
+            X1 = np.concatenate((self.prevX, np.zeros((nq + nqu + nr, 1))),
+                                axis=0)
             P1 = block_diag(self.prevP, Q, Qu, R)
 
         # if next input is not specified, take current one
@@ -873,11 +914,12 @@ class PointBasedFixedLagSmoother(PointBasedFilter):
         if predict_flag:
             # prediction step (step 5 of algorithm 5.1) by implementing equations 5.25, 5.34 and 5.35 (pages 105-106)
             ia = np.arange(n)
-            ib = np.arange(n, 2*n)
-            iq = np.arange(2*n, 2*n+nq)
-            iqu = np.arange(2*n+nq, 2*n+nq+nqu)
-            X, x, P, x1 = self.unscented_transformF(
-                x, W, WeightMat, L, f, u, ia, ib, iq, iqu, additional_args_pm)
+            ib = np.arange(n, 2 * n)
+            iq = np.arange(2 * n, 2 * n + nq)
+            iqu = np.arange(2 * n + nq, 2 * n + nq + nqu)
+            X, x, P, x1 = self.unscented_transformF(x, W, WeightMat, L, f, u,
+                                                    ia, ib, iq, iqu,
+                                                    additional_args_pm)
 
             # store augmented belief to be used in the future
             self.prevX = X.copy()
@@ -885,7 +927,7 @@ class PointBasedFixedLagSmoother(PointBasedFilter):
 
             # temporary return values
             X_fi[self.lag_interval] = X[ib, :]
-            P_fi[self.lag_interval] = P[n:2*n, n:2*n]
+            P_fi[self.lag_interval] = P[n:2 * n, n:2 * n]
 
             # latest action is predict
             self.latest_action = 'predict'
@@ -895,30 +937,33 @@ class PointBasedFixedLagSmoother(PointBasedFilter):
             # store predictive density and gain
             if self.latest_action == 'predict':
                 if not self.backward_pass:
-                    self.pred_density.append((
-                        X[ib, :].copy(), P[n:2*n, n:2*n].copy()))
+                    self.pred_density.append(
+                        (X[ib, :].copy(), P[n:2 * n, n:2 * n].copy()))
                     self.gain.append(
-                        np.matmul(P[0:n, n:2*n], np.linalg.inv(P[n:2*n, n:2*n])))
+                        np.matmul(P[0:n, n:2 * n],
+                                  np.linalg.inv(P[n:2 * n, n:2 * n])))
                     if len(self.gain) >= self.lag_interval:
                         self.backward_pass = True
                 else:
                     self.pred_density[:-1] = self.pred_density[1:]
                     self.pred_density[-1] = (X[ib, :].copy(),
-                                             P[n:2*n, n:2*n].copy())
+                                             P[n:2 * n, n:2 * n].copy())
                     self.gain[:-1] = self.gain[1:]
-                    self.gain[-1] = np.matmul(P[0:n, n:2*n],
-                                              np.linalg.inv(P[n:2*n, n:2*n]))
+                    self.gain[-1] = np.matmul(
+                        P[0:n, n:2 * n], np.linalg.inv(P[n:2 * n, n:2 * n]))
 
             # check if innovation keys is valid
             for key in innovation_bound_func:
-                assert key in range(len(
-                    y)), "Key of innovation bound function dictionary should be within the length of the output"
-                assert callable(
-                    innovation_bound_func[key]), "Innovation bound function is not callable"
+                assert key in range(
+                    len(y)
+                ), "Key of innovation bound function dictionary should be within the length of the output"
+                assert callable(innovation_bound_func[key]
+                                ), "Innovation bound function is not callable"
 
-            ip = np.arange(2*n+nq+nqu, 2*n+nq+nqu+nr)
-            Z, _, Pz, z2 = self.unscented_transformH(
-                x, W, WeightMat, L, h, u_next, ib, ip, len(y), additional_args_om)
+            ip = np.arange(2 * n + nq + nqu, 2 * n + nq + nqu + nr)
+            Z, _, Pz, z2 = self.unscented_transformH(x, W, WeightMat, L, h,
+                                                     u_next, ib, ip, len(y),
+                                                     additional_args_om)
             # transformed cross-covariance (equation 5.38)
             Pxy = np.matmul(np.matmul(x1, WeightMat), z2.T)
             # Kalman gain
@@ -934,29 +979,31 @@ class PointBasedFixedLagSmoother(PointBasedFilter):
 
             # perform backward pass
             X_fi[self.lag_interval] = X[ib, :]
-            P_fi[self.lag_interval] = P[n:2*n, n:2*n]
+            P_fi[self.lag_interval] = P[n:2 * n, n:2 * n]
             if self.backward_pass:
-                for j in range(self.lag_interval-1, -1, -1):
+                for j in range(self.lag_interval - 1, -1, -1):
                     X_fi[j] = self.filter_density[j][0] + np.matmul(
-                        self.gain[j], X_fi[j+1] - self.pred_density[j][0])
+                        self.gain[j], X_fi[j + 1] - self.pred_density[j][0])
                     P_fi[j] = self.filter_density[j][1] + np.matmul(
-                        np.matmul(self.gain[j], P_fi[j+1] - self.pred_density[j][1]), self.gain[j].T)
+                        np.matmul(self.gain[j], P_fi[j + 1] -
+                                  self.pred_density[j][1]), self.gain[j].T)
 
             # store the filtered density
             if self.latest_action == 'update':
-                self.filter_density[-1] = (X[ib, :], P[n:2*n, n:2*n])
+                self.filter_density[-1] = (X[ib, :], P[n:2 * n, n:2 * n])
             elif len(self.gain) < self.lag_interval:
-                self.filter_density.append((X[ib, :], P[n:2*n, n:2*n]))
+                self.filter_density.append((X[ib, :], P[n:2 * n, n:2 * n]))
             else:
                 self.filter_density[:-1] = self.filter_density[1:]
-                self.filter_density[-1] = (X[ib, :], P[n:2*n, n:2*n])
+                self.filter_density[-1] = (X[ib, :], P[n:2 * n, n:2 * n])
 
             # update latest action
             self.latest_action = 'update'
 
         return X_fi, P_fi, self.backward_pass
 
-    def unscented_transformF(self, x, W, WeightMat, L, f, u, ia, ib, iq, iqu, additional_args):
+    def unscented_transformF(self, x, W, WeightMat, L, f, u, ia, ib, iq, iqu,
+                             additional_args):
         """
         Function to propagate sigma/cubature points through process model function.
 
@@ -986,13 +1033,13 @@ class PointBasedFixedLagSmoother(PointBasedFilter):
         # Propagating sigma/cubature points through function (equation 5.25)
         for k in range(L):
             if len(iqu):
-                y[ib, k] = f(x[ib, k], u, x[iq, k],
-                             x[iqu, k], *additional_args)
+                y[ib, k] = f(x[ib, k], u, x[iq, k], x[iqu, k],
+                             *additional_args)
             else:
-                y[ib, k] = f(x[ib, k], u, x[iq, k],
-                             np.zeros(u.shape), *additional_args)
+                y[ib, k] = f(x[ib, k], u, x[iq, k], np.zeros(u.shape),
+                             *additional_args)
             # Calculating mean (equation 5.34)
-            Y += W.flat[k]*y[np.arange(order), k:k+1]
+            Y += W.flat[k] * y[np.arange(order), k:k + 1]
 
         # Calculating covariance (equation 5.35)
         y1 = y[np.arange(order), :] - Y
@@ -1013,7 +1060,6 @@ class PointBasedFixedLagSmootherAugmented(PointBasedFilter):
         lag_interval (int): lag interval for producing smoothed estimate
 
     """
-
     def __init__(self, method, order, lag_interval):
         super(PointBasedFixedLagSmootherAugmented,
               self).__init__(method, order)
@@ -1032,15 +1078,26 @@ class PointBasedFixedLagSmootherAugmented(PointBasedFilter):
         """
         self.init_cond_set = True
         self.n = len(X)
-        self.na = (self.lag_interval+1)*self.n
+        self.na = (self.lag_interval + 1) * self.n
         self.ia = np.arange(self.n)
         self.ib = np.arange(self.n, self.na)
 
         # augment the state and covariance matrix
-        self.X_aug = np.tile(X, (self.lag_interval+1, 1))
-        self.P_aug = np.tile(P, (self.lag_interval+1, self.lag_interval+1))
+        self.X_aug = np.tile(X, (self.lag_interval + 1, 1))
+        self.P_aug = np.tile(P, (self.lag_interval + 1, self.lag_interval + 1))
 
-    def predict_and_or_update(self, f, h, Q, R, u, y, Qu=None, additional_args_pm=[], additional_args_om=[], innovation_bound_func={}, predict_flag=True):
+    def predict_and_or_update(self,
+                              f,
+                              h,
+                              Q,
+                              R,
+                              u,
+                              y,
+                              Qu=None,
+                              additional_args_pm=[],
+                              additional_args_om=[],
+                              innovation_bound_func={},
+                              predict_flag=True):
         """
         Perform one iteration of prediction and/or update + backward pass to produce smoothed estimate when applicable.
 
@@ -1073,7 +1130,7 @@ class PointBasedFixedLagSmootherAugmented(PointBasedFilter):
             nqu = 0
             Qu = np.zeros((nqu, nqu))
         nr = R.shape[0]
-        X1 = np.concatenate((self.X_aug, np.zeros((nq+nqu+nr, 1))), axis=0)
+        X1 = np.concatenate((self.X_aug, np.zeros((nq + nqu + nr, 1))), axis=0)
         P1 = block_diag(self.P_aug, Q, Qu, R)
 
         # generate cubature/sigma points and the weights based on the method (steps 2-4 of algorithm 5.1)
@@ -1089,8 +1146,8 @@ class PointBasedFixedLagSmootherAugmented(PointBasedFilter):
                 x, L, W, WeightMat = self.cubature4(X1, P1)
 
         if predict_flag:
-            iq = np.arange(self.na, self.na+nq)
-            iqu = np.arange(self.na+nq, self.na+nq+nqu)
+            iq = np.arange(self.na, self.na + nq)
+            iqu = np.arange(self.na + nq, self.na + nq + nqu)
             self.X_aug, x, self.P_aug, x1 = self.unscented_transformF(
                 x, W, WeightMat, L, f, u, iq, iqu, additional_args_pm)
 
@@ -1098,14 +1155,16 @@ class PointBasedFixedLagSmootherAugmented(PointBasedFilter):
         if len(y):
             # check if innovation keys is valid
             for key in innovation_bound_func:
-                assert key in range(len(
-                    y)), "Key of innovation bound function dictionary should be within the length of the output"
-                assert callable(
-                    innovation_bound_func[key]), "Innovation bound function is not callable"
+                assert key in range(
+                    len(y)
+                ), "Key of innovation bound function dictionary should be within the length of the output"
+                assert callable(innovation_bound_func[key]
+                                ), "Innovation bound function is not callable"
 
-            ip = np.arange(self.na+nq+nqu, self.na+nq+nqu+nr)
-            Z, _, Pz, z2 = self.unscented_transformH(
-                x, W, WeightMat, L, h, u, self.ia, ip, len(y), additional_args_om)
+            ip = np.arange(self.na + nq + nqu, self.na + nq + nqu + nr)
+            Z, _, Pz, z2 = self.unscented_transformH(x, W, WeightMat, L, h, u,
+                                                     self.ia, ip, len(y),
+                                                     additional_args_om)
             # transformed cross-covariance (equation 5.38)
             Pxy = np.matmul(np.matmul(x1, WeightMat), z2.T)
             # Kalman gain
@@ -1119,9 +1178,11 @@ class PointBasedFixedLagSmootherAugmented(PointBasedFilter):
             # covariance update (equation 5.41)
             self.P_aug -= np.matmul(K, Pxy.T)
 
-        return self.X_aug[self.n*self.lag_interval:, :], self.P_aug[self.n*self.lag_interval:, self.n*self.lag_interval:]
+        return self.X_aug[self.n * self.lag_interval:, :], self.P_aug[
+            self.n * self.lag_interval:, self.n * self.lag_interval:]
 
-    def unscented_transformF(self, x, W, WeightMat, L, f, u, iq, iqu, additional_args):
+    def unscented_transformF(self, x, W, WeightMat, L, f, u, iq, iqu,
+                             additional_args):
         """
         Function to propagate sigma/cubature points through process model function.
 
@@ -1151,13 +1212,13 @@ class PointBasedFixedLagSmootherAugmented(PointBasedFilter):
             y[self.ib, k] = x[ic, k]
             # prediction step
             if len(iqu):
-                y[self.ia, k] = f(x[self.ia, k], u, x[iq, k],
-                                  x[iqu, k], *additional_args)
+                y[self.ia, k] = f(x[self.ia, k], u, x[iq, k], x[iqu, k],
+                                  *additional_args)
             else:
                 y[self.ia, k] = f(x[self.ia, k], u, x[iq, k],
                                   np.zeros(u.shape), *additional_args)
             # Calculating mean (equation 5.34)
-            Y += W.flat[k]*y[np.arange(self.na), k:k+1]
+            Y += W.flat[k] * y[np.arange(self.na), k:k + 1]
 
         # Calculating covariance (equation 5.35)
         y1 = y[np.arange(self.na), :] - Y
@@ -1179,16 +1240,18 @@ def fit_data_rover_dynobj(dynamic_obj, vy=np.array([]), back_rotate=False):
         parameters (list): consists of parameters c1-c9 in that order
     """
 
-    parameters = [0]*9
+    parameters = [0] * 9
 
     # check if we have access to longitudinal velocity
-    if dynamic_obj.state_dict['vx'] not in dynamic_obj.state_indices or back_rotate:
-        assert dynamic_obj.state_dict['x'] in dynamic_obj.state_indices and dynamic_obj.state_dict[
-            'y'] in dynamic_obj.state_indices, "No source for vehicle coordinates from output data"
+    if dynamic_obj.state_dict[
+            'vx'] not in dynamic_obj.state_indices or back_rotate:
+        assert dynamic_obj.state_dict[
+            'x'] in dynamic_obj.state_indices and dynamic_obj.state_dict[
+                'y'] in dynamic_obj.state_indices, "No source for vehicle coordinates from output data"
         vx = dynamic_obj.cal_vxvy_from_coord(output=True)[0, :]
     else:
-        vx = dynamic_obj.outputs[dynamic_obj.state_indices.index(
-            dynamic_obj.state_dict['vx']), :]
+        vx = dynamic_obj.outputs[
+            dynamic_obj.state_indices.index(dynamic_obj.state_dict['vx']), :]
 
     # first fit the longitudinal acceleration
     if dynamic_obj.state_dict['vx'] in dynamic_obj.state_dot_indices:
@@ -1198,16 +1261,17 @@ def fit_data_rover_dynobj(dynamic_obj, vy=np.array([]), back_rotate=False):
     else:
         dts = np.diff(dynamic_obj.T)
         if len(vx) < len(dynamic_obj.T):
-            dts = dts[:len(vx)-1]
-        vxdot = np.diff(vx)/dts
+            dts = dts[:len(vx) - 1]
+        vxdot = np.diff(vx) / dts
     last_ind = min(len(vx), len(vxdot))
 
-    diff = np.reshape(vx[:last_ind] -
-                      dynamic_obj.U[1, :last_ind], [-1, 1])
-    A_long_accel = np.concatenate(
-        (np.ones((len(vxdot[:last_ind]), 1)), diff, np.square(diff)), axis=1)
-    parameters[4:7] = np.linalg.lstsq(
-        A_long_accel, vxdot[:last_ind, np.newaxis], rcond=None)[0][:, 0].tolist()
+    diff = np.reshape(vx[:last_ind] - dynamic_obj.U[1, :last_ind], [-1, 1])
+    A_long_accel = np.concatenate((np.ones(
+        (len(vxdot[:last_ind]), 1)), diff, np.square(diff)),
+                                  axis=1)
+    parameters[4:7] = np.linalg.lstsq(A_long_accel,
+                                      vxdot[:last_ind, np.newaxis],
+                                      rcond=None)[0][:, 0].tolist()
 
     # fitting for yaw rate
     if dynamic_obj.state_dict['theta'] in dynamic_obj.state_dot_indices:
@@ -1218,63 +1282,77 @@ def fit_data_rover_dynobj(dynamic_obj, vy=np.array([]), back_rotate=False):
     else:
         theta_ind = dynamic_obj.state_indices.index(
             dynamic_obj.state_dict['theta'])
-        thetadot = np.diff(
-            dynamic_obj.outputs[theta_ind, :])/np.diff(dynamic_obj.T)
+        thetadot = np.diff(dynamic_obj.outputs[theta_ind, :]) / np.diff(
+            dynamic_obj.T)
     last_ind = min(len(thetadot), len(vx))
 
     def nls_yawrate(x, yaw_rate, steering_cmd, vx):
-        return yaw_rate - np.tan(x[0]*steering_cmd + x[1])*vx/(x[2] + x[3]*vx**2)
+        return yaw_rate - np.tan(x[0] * steering_cmd +
+                                 x[1]) * vx / (x[2] + x[3] * vx**2)
 
     x0 = np.array([1, 0, 1.775, 0])
-    res_l = least_squares(nls_yawrate, x0, args=(
-        thetadot[:last_ind], dynamic_obj.U[0, :last_ind], vx[:last_ind]))
+    res_l = least_squares(nls_yawrate,
+                          x0,
+                          args=(thetadot[:last_ind],
+                                dynamic_obj.U[0, :last_ind], vx[:last_ind]))
     parameters[:4] = res_l.x
 
     # calculate lateral velocity
     if vy.shape[0] == 0 and back_rotate:
-        assert dynamic_obj.state_dict['x'] in dynamic_obj.state_indices and dynamic_obj.state_dict[
-            'y'] in dynamic_obj.state_indices, "No source for vehicle coordinates from output data"
+        assert dynamic_obj.state_dict[
+            'x'] in dynamic_obj.state_indices and dynamic_obj.state_dict[
+                'y'] in dynamic_obj.state_indices, "No source for vehicle coordinates from output data"
         vy = dynamic_obj.cal_vxvy_from_coord_wrapper(output=True)[1, :]
 
     # depending on availability of vy, perform NLS or LS
     if vy.shape[0] == 0:
-        assert dynamic_obj.state_dict['x'] in dynamic_obj.state_indices and dynamic_obj.state_dict[
-            'y'] in dynamic_obj.state_indices, "No source for vehicle coordinates from output data"
+        assert dynamic_obj.state_dict[
+            'x'] in dynamic_obj.state_indices and dynamic_obj.state_dict[
+                'y'] in dynamic_obj.state_indices, "No source for vehicle coordinates from output data"
 
         x_ind = dynamic_obj.state_indices.index(dynamic_obj.state_dict['x'])
         y_ind = dynamic_obj.state_indices.index(dynamic_obj.state_dict['y'])
         theta_ind = dynamic_obj.state_indices.index(
             dynamic_obj.state_dict['theta'])
 
-        xdot = np.diff(dynamic_obj.outputs[x_ind, :])/np.diff(dynamic_obj.T)
-        ydot = np.diff(dynamic_obj.outputs[y_ind, :])/np.diff(dynamic_obj.T)
+        xdot = np.diff(dynamic_obj.outputs[x_ind, :]) / np.diff(dynamic_obj.T)
+        ydot = np.diff(dynamic_obj.outputs[y_ind, :]) / np.diff(dynamic_obj.T)
         theta = dynamic_obj.outputs[theta_ind, :]
 
         last_ind = min(len(xdot), len(vx), len(theta), len(thetadot))
 
         def nls_xy(params, xdot, ydot, vx, yaw, yaw_rate):
-            vy = yaw_rate*(params[0] + params[1]*vx**2)
-            res_x = xdot - (vx*np.cos(yaw) - vy*np.sin(yaw))
-            res_y = ydot - (vx*np.sin(yaw) + vy*np.cos(yaw))
+            vy = yaw_rate * (params[0] + params[1] * vx**2)
+            res_x = xdot - (vx * np.cos(yaw) - vy * np.sin(yaw))
+            res_y = ydot - (vx * np.sin(yaw) + vy * np.cos(yaw))
             return np.concatenate((res_x, res_y)).flatten()
 
         x0 = np.array([0.1, 0.1])
-        res_l = least_squares(nls_xy, x0, args=(
-            xdot[:last_ind], ydot[:last_ind], vx[:last_ind], theta[:last_ind], thetadot[:last_ind]))
+        res_l = least_squares(nls_xy,
+                              x0,
+                              args=(xdot[:last_ind], ydot[:last_ind],
+                                    vx[:last_ind], theta[:last_ind],
+                                    thetadot[:last_ind]))
         parameters[7:9] = res_l.x
     else:
         # LS fitting based on lateral velocity
         last_ind = min(len(thetadot), len(vx), len(vy))
-        prod = thetadot[:last_ind]*(vx[:last_ind]**2)
+        prod = thetadot[:last_ind] * (vx[:last_ind]**2)
         A_lat_vel = np.concatenate(
             (thetadot[:last_ind, np.newaxis], prod[:, np.newaxis]), axis=1)
-        parameters[7:9] = np.linalg.lstsq(
-            A_lat_vel, vy[:last_ind, np.newaxis], rcond=None)[0][:, 0].tolist()
+        parameters[7:9] = np.linalg.lstsq(A_lat_vel,
+                                          vy[:last_ind, np.newaxis],
+                                          rcond=None)[0][:, 0].tolist()
 
     return parameters
 
 
-def fit_data_rover(states, U, dt, vxdot=np.array([]), yawrate=np.array([]), vy=np.array([])):
+def fit_data_rover(states,
+                   U,
+                   dt,
+                   vxdot=np.array([]),
+                   yawrate=np.array([]),
+                   vy=np.array([])):
     """
     Perform LS and NLS fitting parameters estimation for the rover dynamics (c1-c9).
 
@@ -1290,60 +1368,80 @@ def fit_data_rover(states, U, dt, vxdot=np.array([]), yawrate=np.array([]), vy=n
 
     """
 
-    parameters = [0]*9
+    parameters = [0] * 9
 
     # first fit the longitudinal acceleration
     if vxdot.shape[0] == 0:
-        vxdot = np.diff(states[3, :])/dt
+        vxdot = np.diff(states[3, :]) / dt
     else:
         vxdot = vxdot[:-1]
     diff = np.reshape(states[3, :-1] - U[1, :-1], [-1, 1])
-    A_long_accel = np.concatenate(
-        (np.ones((len(vxdot), 1)), diff, np.square(diff)), axis=1)
-    parameters[4:7] = np.linalg.lstsq(
-        A_long_accel, vxdot[:, np.newaxis], rcond=None)[0][:, 0].tolist()
+    A_long_accel = np.concatenate((np.ones(
+        (len(vxdot), 1)), diff, np.square(diff)),
+                                  axis=1)
+    parameters[4:7] = np.linalg.lstsq(A_long_accel,
+                                      vxdot[:, np.newaxis],
+                                      rcond=None)[0][:, 0].tolist()
 
     # fitting for yaw rate
     if yawrate.shape[0] == 0:
-        yawrate = np.diff(states[2, :])/dt
+        yawrate = np.diff(states[2, :]) / dt
     else:
         yawrate = yawrate[:-1]
 
     def nls_yawrate(x, yaw_rate, steering_cmd, vx):
-        return yaw_rate - np.tan(x[0]*steering_cmd + x[1])*vx/(x[2] + x[3]*vx**2)
+        return yaw_rate - np.tan(x[0] * steering_cmd +
+                                 x[1]) * vx / (x[2] + x[3] * vx**2)
 
     x0 = np.array([1, 0, 1.775, 0])
-    res_l = least_squares(nls_yawrate, x0, args=(
-        yawrate, U[0, :-1], states[3, :-1]))
+    res_l = least_squares(nls_yawrate,
+                          x0,
+                          args=(yawrate, U[0, :-1], states[3, :-1]))
     parameters[:4] = res_l.x
 
     if vy.shape[0] == 0:
-        xdot = np.diff(states[0, :])/dt
-        ydot = np.diff(states[1, :])/dt
+        xdot = np.diff(states[0, :]) / dt
+        ydot = np.diff(states[1, :]) / dt
 
         # fitting for xdot and ydot coordinates
         def nls_xy(params, xdot, ydot, vx, yaw, yaw_rate):
-            vy = yaw_rate*(params[0] + params[1]*vx**2)
-            res_x = xdot - (vx*np.cos(yaw) - vy*np.sin(yaw))
-            res_y = ydot - (vx*np.sin(yaw) + vy*np.cos(yaw))
+            vy = yaw_rate * (params[0] + params[1] * vx**2)
+            res_x = xdot - (vx * np.cos(yaw) - vy * np.sin(yaw))
+            res_y = ydot - (vx * np.sin(yaw) + vy * np.cos(yaw))
             return np.concatenate((res_x, res_y)).flatten()
 
         x0 = np.array([0.1, 0.1])
-        res_l = least_squares(nls_xy, x0, args=(
-            xdot, ydot, states[3, :-1], states[2, :-1], yawrate))
+        res_l = least_squares(nls_xy,
+                              x0,
+                              args=(xdot, ydot, states[3, :-1], states[2, :-1],
+                                    yawrate))
         parameters[7:9] = res_l.x
     else:
         # fitting for lateral velocity
-        prod = yawrate*(states[3, :-1]**2)
+        prod = yawrate * (states[3, :-1]**2)
         A_lat_vel = np.concatenate(
             (yawrate[:, np.newaxis], prod[:, np.newaxis]), axis=1)
-        parameters[7:9] = np.linalg.lstsq(A_lat_vel, vy[:-1, np.newaxis], rcond=None)[
-            0][:, 0].tolist()
+        parameters[7:9] = np.linalg.lstsq(A_lat_vel,
+                                          vy[:-1, np.newaxis],
+                                          rcond=None)[0][:, 0].tolist()
 
     return parameters
 
 
-def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, Qu=None, additional_args_pm=[], additional_args_om=[], overwrite_inds=[], overwrite_vals=[]):
+def sample_nlds(z0,
+                U,
+                nt,
+                f,
+                h,
+                num_out,
+                Q=None,
+                P0=None,
+                R=None,
+                Qu=None,
+                additional_args_pm=[],
+                additional_args_om=[],
+                overwrite_inds=[],
+                overwrite_vals=[]):
     """
     Retrieve ground truth, initial and output data (SNLDS: Stochastic non-linear dynamic system)
 
@@ -1368,7 +1466,7 @@ def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, Qu=None, addi
         gt_states (numpy array [n x nt]): ground truth states at different time instances
         initial_cond (numpy array [n x 1]): initial condition from Gaussian distribution with mean z0 and covariance P0
         outputs (numpy array [num_out x nt]): simulated outputs of the system
-        additional_args_pm_list (2d list [len(additional_args_pm) x nt]): additional arguments to be passed to 
+        additional_args_pm_list (2d list [len(additional_args_pm) x nt]): additional arguments to be passed to
             function f at each time instant
         additional_args_om_list (2d list [len(additional_args_om) x nt]): additional arguments to be passed to
             function h at each time instant
@@ -1386,14 +1484,15 @@ def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, Qu=None, addi
         R = np.zeros((num_out, num_out))
 
     # check sizes of received matrices
-    assert U.shape[1] == nt, "Expected input for all {} time instances but only received {}".format(
-        nt, U.shape[1])
-    assert Q.shape == (len(z0), len(
-        z0)), "Inconsistent size of process noise matrix"
-    assert Qu.shape == (U.shape[0], U.shape[0]
-                        ), "Inconsistent size of input noise matrix"
-    assert P0.shape == (len(z0), len(
-        z0)), "Inconsistent size of initial covariance matrix"
+    assert U.shape[
+        1] == nt, "Expected input for all {} time instances but only received {}".format(
+            nt, U.shape[1])
+    assert Q.shape == (len(z0),
+                       len(z0)), "Inconsistent size of process noise matrix"
+    assert Qu.shape == (U.shape[0],
+                        U.shape[0]), "Inconsistent size of input noise matrix"
+    assert P0.shape == (
+        len(z0), len(z0)), "Inconsistent size of initial covariance matrix"
     assert R.shape == (
         num_out, num_out), "Inconsistent size of observation noise matrix"
 
@@ -1405,14 +1504,16 @@ def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, Qu=None, addi
             additional_args_pm_list[i] = [argument] * nt
         else:
             assert len(
-                argument) == nt, "If iterable argument for pm is provided, it should have the length of nt"
+                argument
+            ) == nt, "If iterable argument for pm is provided, it should have the length of nt"
             additional_args_pm_list[i] = argument
     for i, argument in enumerate(additional_args_om):
         if not isinstance(argument, Iterable):
             additional_args_om_list[i] = [argument] * nt
         else:
             assert len(
-                argument) == nt, "If iterable argument for om is provided, it should have the length of nt"
+                argument
+            ) == nt, "If iterable argument for om is provided, it should have the length of nt"
             additional_args_om_list[i] = argument
 
     # check the information to be overwritten
@@ -1432,26 +1533,27 @@ def sample_nlds(z0, U, nt, f, h, num_out, Q=None, P0=None, R=None, Qu=None, addi
     # generate noise samples for stochastic model and observations
     state_noise_samples = sample_gaussian(np.zeros(z0.shape), Q, nt)
     input_noise_samples = sample_gaussian(np.zeros((Qu.shape[0], 1)), Qu, nt)
-    obs_noise_samples = sample_gaussian(
-        np.zeros((num_out, 1)), R, nt)
+    obs_noise_samples = sample_gaussian(np.zeros((num_out, 1)), R, nt)
 
     # initialise matrices to return
     gt_states = np.zeros((z0.shape[0], nt))
     gt_states[:, 0:1] = z0
     initial_cond = sample_gaussian(z0, P0, 1)
     outputs = np.zeros((num_out, nt))
-    outputs[:, 0] = h(gt_states[:, 0], U[:, 0],
-                      obs_noise_samples[:, 0], *[sub[0] for sub in additional_args_om_list])
+    outputs[:, 0] = h(gt_states[:, 0], U[:, 0], obs_noise_samples[:, 0],
+                      *[sub[0] for sub in additional_args_om_list])
 
     for i in range(1, nt):
-        gt_states[:, i] = f(gt_states[:, i-1], U[:, i-1], state_noise_samples[:, i-1],
-                            input_noise_samples[:, i-1], *[sub[i-1] for sub in additional_args_pm_list])
+        gt_states[:, i] = f(gt_states[:, i - 1], U[:, i - 1],
+                            state_noise_samples[:, i - 1],
+                            input_noise_samples[:, i - 1],
+                            *[sub[i - 1] for sub in additional_args_pm_list])
 
         # overwrite information as per user requirement
         gt_states[overwrite_inds, i] = overwrite_vals_array[:, i]
 
-        outputs[:, i] = h(gt_states[:, i], U[:, i],
-                          obs_noise_samples[:, i], *[sub[i] for sub in additional_args_om_list])
+        outputs[:, i] = h(gt_states[:, i], U[:, i], obs_noise_samples[:, i],
+                          *[sub[i] for sub in additional_args_om_list])
 
     return gt_states, initial_cond, outputs, additional_args_pm_list, additional_args_om_list
 
@@ -1471,27 +1573,31 @@ def test_pbgf_linear(n=10, m=5, nt=10):
     np.random.seed(0)
 
     # set up the true initial condition
-    X = 5.0*np.random.randn(n, 1)
-    P = 10.0*np.random.randn(n, n)
+    X = 5.0 * np.random.randn(n, 1)
+    P = 10.0 * np.random.randn(n, n)
     P = np.matmul(P, P.T)
 
     # process and measurement models (linear)
     dt = 0.05
-    J = np.eye(n) + dt*(-2.0*np.eye(n) +
-                        np.diag(np.ones(n-1), 1) + np.diag(np.ones(n-1), -1))
+    J = np.eye(n) + dt * (-2.0 * np.eye(n) + np.diag(np.ones(n - 1), 1) +
+                          np.diag(np.ones(n - 1), -1))
 
-    def process_model(x, u, noise, input_noise): return np.matmul(J, x) + noise
-    Q = 5.0*np.eye(n)
+    def process_model(x, u, noise, input_noise):
+        return np.matmul(J, x) + noise
+
+    Q = 5.0 * np.eye(n)
     out_loc = np.random.permutation(n)[:m]
-    R = 1.0*np.eye(m)
+    R = 1.0 * np.eye(m)
     H = np.zeros((m, n))
-    l_ind = out_loc + np.arange(m)*n
+    l_ind = out_loc + np.arange(m) * n
     H.flat[l_ind] = 1.0
-    def observation_model(x, u, noise): return np.matmul(H, x) + noise
+
+    def observation_model(x, u, noise):
+        return np.matmul(H, x) + noise
 
     ## generate the output of the real time system
-    x_gt, x0, outputs = sample_nlds(
-        X, [], nt, process_model, observation_model, m, Q, P, R)[0:3]
+    x_gt, x0, outputs = sample_nlds(X, [], nt, process_model,
+                                    observation_model, m, Q, P, R)[0:3]
 
     # create multiple instances of PBGF for all methods and orders
     pbgfs = []
@@ -1507,7 +1613,7 @@ def test_pbgf_linear(n=10, m=5, nt=10):
     P1 = P.copy()
     P2 = P.copy()
     mse = np.zeros((nt, 1))
-    mse[0] = np.mean((X1-x_gt[:, 0])**2)
+    mse[0] = np.mean((X1 - x_gt[:, 0])**2)
     trace = np.zeros(mse.shape)
     trace[0] = np.trace(P1)
     for i in range(1, nt):
@@ -1517,7 +1623,7 @@ def test_pbgf_linear(n=10, m=5, nt=10):
         P1 = np.matmul(np.matmul(J, P1), J.T) + Q
 
         # update step
-        z = outputs[:, i:i+1] - observation_model(X1, [], 0.0)
+        z = outputs[:, i:i + 1] - observation_model(X1, [], 0.0)
         S = np.matmul(np.matmul(H, P1), H.T) + R
         K = np.matmul(np.matmul(P1, H.T), np.linalg.inv(S))
         X1 += np.matmul(K, z)
@@ -1542,7 +1648,7 @@ def test_pbgf_linear(n=10, m=5, nt=10):
                 pbgf_str)
 
         # calculate mse and put in array
-        mse[i] = np.mean((X1-x_gt[:, i])**2)
+        mse[i] = np.mean((X1 - x_gt[:, i])**2)
         trace[i] = np.trace(P1)
 
     import matplotlib.pyplot as plt
@@ -1553,7 +1659,11 @@ def test_pbgf_linear(n=10, m=5, nt=10):
     plt.show()
 
 
-def test_pbgf_1d_linear(gt_const=10.0, initial_cov=10.0, q_cov=1e-2, r_cov=1.0, nt=50):
+def test_pbgf_1d_linear(gt_const=10.0,
+                        initial_cov=10.0,
+                        q_cov=1e-2,
+                        r_cov=1.0,
+                        nt=50):
     """
     Test the PBGF against KF when problem is linear. This problem is one-dimensional estimate of a random constant.
 
@@ -1570,19 +1680,22 @@ def test_pbgf_1d_linear(gt_const=10.0, initial_cov=10.0, q_cov=1e-2, r_cov=1.0, 
 
     # set up the true initial condition
     X = np.array([[gt_const]])
-    P = initial_cov*np.ones((1, 1))
+    P = initial_cov * np.ones((1, 1))
 
     # process and observation model
-    def process_model(x, u=[], noise=0.0, input_noise=0.0): return x + noise
-    def observation_model(x, u=[], noise=0.0): return x + noise
+    def process_model(x, u=[], noise=0.0, input_noise=0.0):
+        return x + noise
+
+    def observation_model(x, u=[], noise=0.0):
+        return x + noise
 
     # process and observation noises
     R = np.array([[r_cov]])
     Q = np.array([[q_cov]])
 
     # generate the initial condition
-    x_gt, x0, outputs = sample_nlds(
-        X, [], nt, process_model, observation_model, 1, Q, P, R)[0:3]
+    x_gt, x0, outputs = sample_nlds(X, [], nt, process_model,
+                                    observation_model, 1, Q, P, R)[0:3]
 
     # create multiple instances of PBGF for all methods and orders
     pbgfs = []
@@ -1600,7 +1713,7 @@ def test_pbgf_1d_linear(gt_const=10.0, initial_cov=10.0, q_cov=1e-2, r_cov=1.0, 
     est_history = np.zeros((nt, 1))
     est_history[0] = x0.copy()
     mse = np.zeros((nt, 1))
-    mse[0] = np.mean((X1-x_gt[:, 0])**2)
+    mse[0] = np.mean((X1 - x_gt[:, 0])**2)
     trace = np.zeros(mse.shape)
     trace[0] = np.trace(P1)
     for i in range(1, nt):
@@ -1609,7 +1722,7 @@ def test_pbgf_1d_linear(gt_const=10.0, initial_cov=10.0, q_cov=1e-2, r_cov=1.0, 
         P1 = P1 + Q
 
         # update step
-        z = outputs[:, i:i+1] - X1
+        z = outputs[:, i:i + 1] - X1
         S = P1 + R
         K = np.matmul(P1, np.linalg.inv(S))
         X1 += np.matmul(K, z)
@@ -1634,7 +1747,7 @@ def test_pbgf_1d_linear(gt_const=10.0, initial_cov=10.0, q_cov=1e-2, r_cov=1.0, 
                 pbgf_str)
 
         # calculate mse and put in array
-        mse[i] = np.mean((X1-x_gt[:, i])**2)
+        mse[i] = np.mean((X1 - x_gt[:, i])**2)
         trace[i] = np.trace(P1)
         est_history[i] = X1[:].copy()
 
@@ -1663,27 +1776,31 @@ def test_pbgf_fixed_lag_smoothing_linear(n=10, m=5, nt=10, lag_interval=5):
     np.random.seed(0)
 
     # set up the true initial condition
-    X = 5.0*np.random.randn(n, 1)
-    P = 10.0*np.random.randn(n, n)
+    X = 5.0 * np.random.randn(n, 1)
+    P = 10.0 * np.random.randn(n, n)
     P = np.matmul(P, P.T)
 
     # process and measurement models (linear)
     dt = 0.05
-    J = np.eye(n) + dt*(-2.0*np.eye(n) +
-                        np.diag(np.ones(n-1), 1) + np.diag(np.ones(n-1), -1))
+    J = np.eye(n) + dt * (-2.0 * np.eye(n) + np.diag(np.ones(n - 1), 1) +
+                          np.diag(np.ones(n - 1), -1))
 
-    def process_model(x, u, noise, input_noise): return np.matmul(J, x) + noise
-    Q = 5.0*np.eye(n)
+    def process_model(x, u, noise, input_noise):
+        return np.matmul(J, x) + noise
+
+    Q = 5.0 * np.eye(n)
     out_loc = np.random.permutation(n)[:m]
-    R = 1.0*np.eye(m)
+    R = 1.0 * np.eye(m)
     H = np.zeros((m, n))
-    l_ind = out_loc + np.arange(m)*n
+    l_ind = out_loc + np.arange(m) * n
     H.flat[l_ind] = 1.0
-    def observation_model(x, u, noise): return np.matmul(H, x) + noise
+
+    def observation_model(x, u, noise):
+        return np.matmul(H, x) + noise
 
     ## generate the output of the real time system
-    x_gt, x0, outputs = sample_nlds(
-        X, [], nt, process_model, observation_model, m, Q, P, R)[0:3]
+    x_gt, x0, outputs = sample_nlds(X, [], nt, process_model,
+                                    observation_model, m, Q, P, R)[0:3]
 
     # create multiple instances of PBGF for all methods and orders
     pbgf_filts = []
@@ -1729,8 +1846,8 @@ def test_pbgf_fixed_lag_smoothing_linear(n=10, m=5, nt=10, lag_interval=5):
     error = X_smooth - x_gt[:, 0:1]
     mse_smooth[0] = np.mean(error**2)
     nees_smooth = np.zeros((nt, 1))
-    nees_smooth[0] = np.matmul(
-        np.matmul(error.T, np.linalg.inv(P_smooth)), error)
+    nees_smooth[0] = np.matmul(np.matmul(error.T, np.linalg.inv(P_smooth)),
+                               error)
 
     # storage for differential entropy
     dentropy_filt = np.zeros((nt, 1))
@@ -1764,10 +1881,10 @@ def test_pbgf_fixed_lag_smoothing_linear(n=10, m=5, nt=10, lag_interval=5):
         X_filt = X_filts[0]
         X_filt_hist[:, i:i + 1] = X_filt.copy()
         # calculate mse and differential entropy
-        error = X_filt-x_gt[:, i:i+1]
+        error = X_filt - x_gt[:, i:i + 1]
         mse_filt[i] = np.mean(error**2)
-        nees_filt[i] = np.matmul(
-            np.matmul(error.T, np.linalg.inv(P_filt)), error)
+        nees_filt[i] = np.matmul(np.matmul(error.T, np.linalg.inv(P_filt)),
+                                 error)
         dentropy_filt[i] = 0.5*n*(1.0 + np.log(2*math.pi)) + \
             0.5*np.log(np.linalg.det(P_filt))
 
@@ -1831,14 +1948,17 @@ def test_pbgf_fixed_lag_smoothing_linear(n=10, m=5, nt=10, lag_interval=5):
 
         # assert that filtered result in smoothing is the same as filtering
         assert np.allclose(
-            X_smooth_fi[-1], X_filt), "Filtered mean from smoothing and filtering are not the same"
+            X_smooth_fi[-1], X_filt
+        ), "Filtered mean from smoothing and filtering are not the same"
         assert np.allclose(
-            P_smooth_fi[-1], P_filt), "Filtered covariance from smoothing and filtering are not the same"
+            P_smooth_fi[-1], P_filt
+        ), "Filtered covariance from smoothing and filtering are not the same"
 
     # assert that MSE & differential entropy for smoother is lower than filtering
-    for i in range(nt-1):
+    for i in range(nt - 1):
         # assert mse_smooth[i] <= mse_filt[i], "Smoothed estimate should be better than filtered estimate"
-        assert dentropy_smooth[i] <= dentropy_filt[i], "Smoothed entropy should be lower than filtered estimate"
+        assert dentropy_smooth[i] <= dentropy_filt[
+            i], "Smoothed entropy should be lower than filtered estimate"
 
     import matplotlib.pyplot as plt
     plt.subplot(2, 1, 1)
