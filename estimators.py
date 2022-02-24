@@ -1710,8 +1710,13 @@ def test_pbgf_linear(n=10, m=5, nt=10):
     pbgf_strs = []
     for method in PointBasedFilter.methods:
         for order in PointBasedFilter.orders:
+            # create one instance without array optimisation while the other with
             pbgfs.append(PointBasedFilter(method, order))
             pbgf_strs.append(method + str(order))
+            pbgfs.append(PointBasedFilter(method, order))
+            pbgfs[-1].pre_alloc_tensors_or_arrays(n, Q.shape[0], 0, R.shape[0],
+                                                  X.dtype, None)
+            pbgf_strs.append(method + str(order) + "_optim")
 
     ## loop through and compare result from KF and a pbgf
     X1 = x0.copy()
@@ -1808,8 +1813,13 @@ def test_pbgf_1d_linear(gt_const=10.0,
     pbgf_strs = []
     for method in PointBasedFilter.methods:
         for order in PointBasedFilter.orders:
+            # create one instance without array optimisation while the other with
             pbgfs.append(PointBasedFilter(method, order))
             pbgf_strs.append(method + str(order))
+            pbgfs.append(PointBasedFilter(method, order))
+            pbgfs[-1].pre_alloc_tensors_or_arrays(X.shape[0], Q.shape[0], 0,
+                                                  R.shape[0], X.dtype, None)
+            pbgf_strs.append(method + str(order) + "_optim")
 
     ## loop through and compare result from KF and a pbgf
     X1 = x0.copy()
