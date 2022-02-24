@@ -1493,8 +1493,15 @@ def test_pbgf_linear(n=10, m=5, nt=10):
     x_gt, x0, outputs = sample_nlds(
         X, [], nt, process_model, observation_model, m, Q, P, R)[0:3]
 
+    # create multiple instances of PBGF for all methods and orders
+    pbgfs = []
+    pbgf_strs = []
+    for method in PointBasedFilter.methods:
+        for order in PointBasedFilter.orders:
+            pbgfs.append(PointBasedFilter(method, order))
+            pbgf_strs.append(method + str(order))
+
     ## loop through and compare result from KF and a pbgf
-    pbgf = PointBasedFilter('CKF', 2)
     X1 = x0.copy()
     X2 = x0.copy()
     P1 = P.copy()
@@ -1517,13 +1524,22 @@ def test_pbgf_linear(n=10, m=5, nt=10):
         P1 -= np.matmul(np.matmul(K, H), P1)
 
         ## PBGF code
-        X2, P2 = pbgf.predict_and_or_update(
-            X2, P2, process_model, observation_model, Q, R, np.array([]), outputs[:, i:i+1])
+        X0 = X2.copy()
+        P0 = P2.copy()
+        for pbgf, pbgf_str in zip(pbgfs, pbgf_strs):
+            X2, P2 = pbgf.predict_and_or_update(X0, P0, process_model,
+                                                observation_model, Q, R,
+                                                np.array([]), outputs[:,
+                                                                      i:i + 1])
 
-        assert np.allclose(
-            P1, P2), "Covariance from KF and PBGF should be the same as problem is linear"
-        assert np.allclose(
-            X1, X2), "Expected Value from KF and PBGF should be the same as problem is linear"
+            assert np.allclose(
+                P1, P2
+            ), "Covariance from KF and PBGF {} should be the same as problem is linear".format(
+                pbgf_str)
+            assert np.allclose(
+                X1, X2
+            ), "Expected Value from KF and PBGF {} should be the same as problem is linear".format(
+                pbgf_str)
 
         # calculate mse and put in array
         mse[i] = np.mean((X1-x_gt[:, i])**2)
@@ -1568,8 +1584,15 @@ def test_pbgf_1d_linear(gt_const=10.0, initial_cov=10.0, q_cov=1e-2, r_cov=1.0, 
     x_gt, x0, outputs = sample_nlds(
         X, [], nt, process_model, observation_model, 1, Q, P, R)[0:3]
 
+    # create multiple instances of PBGF for all methods and orders
+    pbgfs = []
+    pbgf_strs = []
+    for method in PointBasedFilter.methods:
+        for order in PointBasedFilter.orders:
+            pbgfs.append(PointBasedFilter(method, order))
+            pbgf_strs.append(method + str(order))
+
     ## loop through and compare result from KF and a pbgf
-    pbgf = PointBasedFilter('CKF', 2)
     X1 = x0.copy()
     X2 = x0.copy()
     P1 = P.copy()
@@ -1593,13 +1616,22 @@ def test_pbgf_1d_linear(gt_const=10.0, initial_cov=10.0, q_cov=1e-2, r_cov=1.0, 
         P1 -= np.matmul(K, P1)
 
         ## PBGF code
-        X2, P2 = pbgf.predict_and_or_update(
-            X2, P2, process_model, observation_model, Q, R, np.array([]), outputs[:, i:i+1])
+        X0 = X2.copy()
+        P0 = P2.copy()
+        for pbgf, pbgf_str in zip(pbgfs, pbgf_strs):
+            X2, P2 = pbgf.predict_and_or_update(X0, P0, process_model,
+                                                observation_model, Q, R,
+                                                np.array([]), outputs[:,
+                                                                      i:i + 1])
 
-        assert np.allclose(
-            P1, P2), "Covariance from KF and PBGF should be the same as problem is linear"
-        assert np.allclose(
-            X1, X2), "Expected Value from KF and PBGF should be the same as problem is linear"
+            assert np.allclose(
+                P1, P2
+            ), "Covariance from KF and PBGF {} should be the same as problem is linear".format(
+                pbgf_str)
+            assert np.allclose(
+                X1, X2
+            ), "Expected Value from KF and PBGF {} should be the same as problem is linear".format(
+                pbgf_str)
 
         # calculate mse and put in array
         mse[i] = np.mean((X1-x_gt[:, i])**2)
@@ -1653,12 +1685,22 @@ def test_pbgf_fixed_lag_smoothing_linear(n=10, m=5, nt=10, lag_interval=5):
     x_gt, x0, outputs = sample_nlds(
         X, [], nt, process_model, observation_model, m, Q, P, R)[0:3]
 
-    ## loop through and compare result from pbgf filter and fixed-lag smoother
-    pbgf_filt = PointBasedFilter('CKF', 2)
-    pbgf_smooth = PointBasedFixedLagSmoother('CKF', 2, lag_interval)
-    pbgf_smooth_aug = PointBasedFixedLagSmootherAugmented(
-        'CKF', 2, lag_interval)
+    # create multiple instances of PBGF for all methods and orders
+    pbgf_filts = []
+    pbgf_smooths = []
+    pbgf_smooth_augs = []
+    pbgf_strs = []
+    for method in PointBasedFilter.methods:
+        for order in PointBasedFilter.orders:
+            pbgf_filts.append(PointBasedFilter(method, order))
+            pbgf_smooths.append(
+                PointBasedFixedLagSmoother(method, order, lag_interval))
+            pbgf_smooth_augs.append(
+                PointBasedFixedLagSmootherAugmented(method, order,
+                                                    lag_interval))
+            pbgf_strs.append(method + str(order))
 
+    ## loop through and compare result from pbgf filter and fixed-lag smoother
     X_filt = x0.copy()
     X_smooth = x0.copy()
 
@@ -1666,8 +1708,9 @@ def test_pbgf_fixed_lag_smoothing_linear(n=10, m=5, nt=10, lag_interval=5):
     P_smooth = P.copy()
 
     # set initial condition for smoothers
-    pbgf_smooth.set_initial_cond(X_smooth, P_smooth)
-    pbgf_smooth_aug.set_initial_cond(X_smooth, P_smooth)
+    for pbgf_smooth, pbgf_smooth_aug in zip(pbgf_smooths, pbgf_smooth_augs):
+        pbgf_smooth.set_initial_cond(X_smooth, P_smooth)
+        pbgf_smooth_aug.set_initial_cond(X_smooth, P_smooth)
 
     # pre-allocate array to store history of filtered and smoothed means
     X_filt_hist = np.zeros((X_filt.shape[0], nt))
@@ -1700,9 +1743,26 @@ def test_pbgf_fixed_lag_smoothing_linear(n=10, m=5, nt=10, lag_interval=5):
     # filtering and smoothing loop
     for i in range(1, nt):
         ## PBGF filtering code
-        X_filt, P_filt = pbgf_filt.predict_and_or_update(
-            X_filt, P_filt, process_model, observation_model, Q, R, np.array([]), outputs[:, i:i+1])
-        X_filt_hist[:, i:i+1] = X_filt.copy()
+        X_filts = [[]] * len(pbgf_filts)
+        P_filts = [[]] * len(pbgf_filts)
+        X0 = X_filt.copy()
+        P0 = P_filt.copy()
+        for j, pbgf_filt in enumerate(pbgf_filts):
+            X_filts[j], P_filts[j] = pbgf_filt.predict_and_or_update(
+                X0, P0, process_model, observation_model, Q, R, np.array([]),
+                outputs[:, i:i + 1])
+        for pair in itertools.combinations(range(len(pbgf_filts)), 2):
+            assert np.allclose(
+                X_filts[pair[0]], X_filts[pair[1]]
+            ), "Filtered expected Value from PBGF {} and PBGF {} should be the same as problem is linear".format(
+                pbgf_strs[pair[0]], pbgf_strs[pair[1]])
+            assert np.allclose(
+                P_filts[pair[0]], P_filts[pair[1]]
+            ), "Filtered covariance from PBGF {} and PBGF {} should be the same as problem is linear".format(
+                pbgf_strs[pair[0]], pbgf_strs[pair[1]])
+        P_filt = P_filts[0]
+        X_filt = X_filts[0]
+        X_filt_hist[:, i:i + 1] = X_filt.copy()
         # calculate mse and differential entropy
         error = X_filt-x_gt[:, i:i+1]
         mse_filt[i] = np.mean(error**2)
@@ -1712,37 +1772,62 @@ def test_pbgf_fixed_lag_smoothing_linear(n=10, m=5, nt=10, lag_interval=5):
             0.5*np.log(np.linalg.det(P_filt))
 
         # PBGF augmented smoother
-        X_smooth_aug, P_smooth_aug = pbgf_smooth_aug.predict_and_or_update(
-            process_model, observation_model, Q, R, np.array([]), outputs[:, i:i+1])
+        X_smooth_augs = [[]] * len(pbgf_smooth_augs)
+        P_smooth_augs = [[]] * len(pbgf_smooth_augs)
+        for j, pbgf_smooth_aug in enumerate(pbgf_smooth_augs):
+            X_smooth_augs[j], P_smooth_augs[
+                j] = pbgf_smooth_aug.predict_and_or_update(
+                    process_model, observation_model, Q, R, np.array([]),
+                    outputs[:, i:i + 1])
+        for pair in itertools.combinations(range(len(pbgf_smooth_augs)), 2):
+            assert np.allclose(
+                X_smooth_augs[pair[0]], X_smooth_augs[pair[1]]
+            ), "Augmented smoothed expected Value from PBGF {} and PBGF {} should be the same as problem is linear".format(
+                pbgf_strs[pair[0]], pbgf_strs[pair[1]])
+            assert np.allclose(
+                P_smooth_augs[pair[0]], P_smooth_augs[pair[1]]
+            ), "Augmented smooth Covariance from PBGF {} and PBGF {} should be the same as problem is linear".format(
+                pbgf_strs[pair[0]], pbgf_strs[pair[1]])
+        X_smooth_aug = X_smooth_augs[0]
+        P_smooth_aug = P_smooth_augs[0]
+
         # PBGF smoothing code
-        X_smooth_fi, P_smooth_fi, smooth_flag = pbgf_smooth.predict_and_or_update(
-            process_model, observation_model, Q, R, np.array([]), outputs[:, i:i+1])
-        if smooth_flag and i - lag_interval >= 0:
-            assert np.allclose(
-                X_smooth_aug, X_smooth_fi[0]), "Backward pass smoother mean is not equivalent to that from augmented implementation"
-            assert np.allclose(
-                P_smooth_aug, P_smooth_fi[0]), "Backward pass smoother covariance is not equivalent to that from augmented implementation"
-            X_smooth_hist[:, i-lag_interval:i -
-                          lag_interval+1] = X_smooth_fi[0].copy()
-            # calculate mse and differential entropy
-            error = X_smooth_fi[0] - x_gt[:, i-lag_interval:i-lag_interval+1]
-            mse_smooth[i-lag_interval] = np.mean(error**2)
-            nees_smooth[i-lag_interval] = np.matmul(
-                np.matmul(error.T, np.linalg.inv(P_smooth_fi[0])), error)
-            dentropy_smooth[i-lag_interval] = 0.5*n * \
-                (1.0 + np.log(2*math.pi)) + 0.5 * \
-                np.log(np.linalg.det(P_smooth_fi[0]))
-            if i == nt-1:
-                for k in range(1, len(X_smooth_fi)):
-                    error = X_smooth_fi[k] - x_gt[:, i -
-                                                  lag_interval+k:i-lag_interval+k+1]
-                    mse_smooth[i-lag_interval+k] = np.mean(error**2)
-                    nees_smooth[i-lag_interval+k] = np.matmul(
-                        np.matmul(error.T, np.linalg.inv(P_smooth_fi[k])), error)
-                    dentropy_smooth[i-lag_interval+k] = 0.5*n * (1.0 + np.log(
-                        2*math.pi)) + 0.5*np.log(np.linalg.det(P_smooth_fi[k]))
-                    X_smooth_hist[:, i-lag_interval+k:i -
-                                  lag_interval+k+1] = X_smooth_fi[k].copy()
+        for pbgf_smooth in pbgf_smooths:
+            X_smooth_fi, P_smooth_fi, smooth_flag = pbgf_smooth.predict_and_or_update(
+                process_model, observation_model, Q, R, np.array([]),
+                outputs[:, i:i + 1])
+            if smooth_flag and i - lag_interval >= 0:
+                assert np.allclose(
+                    X_smooth_aug, X_smooth_fi[0]
+                ), "Backward pass smoother mean is not equivalent to that from augmented implementation"
+                assert np.allclose(
+                    P_smooth_aug, P_smooth_fi[0]
+                ), "Backward pass smoother covariance is not equivalent to that from augmented implementation"
+                X_smooth_hist[:, i - lag_interval:i - lag_interval +
+                              1] = X_smooth_fi[0].copy()
+                # calculate mse and differential entropy
+                error = X_smooth_fi[0] - x_gt[:, i - lag_interval:i -
+                                              lag_interval + 1]
+                mse_smooth[i - lag_interval] = np.mean(error**2)
+                nees_smooth[i - lag_interval] = np.matmul(
+                    np.matmul(error.T, np.linalg.inv(P_smooth_fi[0])), error)
+                dentropy_smooth[i - lag_interval] = 0.5 * n * (1.0 + np.log(
+                    2 * math.pi)) + 0.5 * np.log(np.linalg.det(P_smooth_fi[0]))
+                if i == nt - 1:
+                    for k in range(1, len(X_smooth_fi)):
+                        error = X_smooth_fi[k] - x_gt[:,
+                                                      i - lag_interval + k:i -
+                                                      lag_interval + k + 1]
+                        mse_smooth[i - lag_interval + k] = np.mean(error**2)
+                        nees_smooth[i - lag_interval + k] = np.matmul(
+                            np.matmul(error.T, np.linalg.inv(P_smooth_fi[k])),
+                            error)
+                        dentropy_smooth[i - lag_interval + k] = 0.5 * n * (
+                            1.0 + np.log(2 * math.pi)) + 0.5 * np.log(
+                                np.linalg.det(P_smooth_fi[k]))
+                        X_smooth_hist[:,
+                                      i - lag_interval + k:i - lag_interval +
+                                      k + 1] = X_smooth_fi[k].copy()
 
         # assert that filtered result in smoothing is the same as filtering
         assert np.allclose(
