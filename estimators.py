@@ -91,13 +91,19 @@ class PointBasedFilter(object):
             to None which refers to CPU
 
     """
+    methods = ['UKF', 'CKF']
+    orders = [2, 4]
 
-    def __init__(self, method, order, use_torch_tensor=False, tensor_device=None):
-        methods = ['UKF', 'CKF']
-        orders = [2, 4]
+    def __init__(self,
+                 method,
+                 order,
+                 use_torch_tensor=False,
+                 tensor_device=None):
 
-        assert method in methods, "Given method not implemented or doesn't exist. Current methods available are 'UKF' and 'CKF'"
-        assert order in orders, "Given order not implemented. Current available orders are 2 and 4"
+        assert method in self.methods, "Given method not implemented or doesn't exist. Current methods available are {}".format(
+            self.methods)
+        assert order in self.orders, "Given order not implemented. Current available orders are {}".format(
+            self.orders)
 
         self.method = method
         self.order = order
