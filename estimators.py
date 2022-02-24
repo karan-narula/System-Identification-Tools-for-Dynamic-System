@@ -203,7 +203,7 @@ class PointBasedFilter(object):
             ib = np.arange(n, n + nq)
             ic = np.arange(n + nq, n + nq + nqu)
             # prediction step (step 5 of algorithm 5.1) by implementing equations 5.25, 5.34 and 5.35 (pages 105-106)
-            X2, x2, P2, x2_cent = self.unscented_transformF(
+            X2, P2, x2_cent = self.unscented_transformF(
                 x, W, WeightMat, L, f, u, ia, ib, ic, additional_args_pm)
         else:
             X2 = X
@@ -354,7 +354,7 @@ class PointBasedFilter(object):
         else:
             P = np.matmul(np.matmul(y1, WeightMat), y1.T)
 
-        return Y, y, P, y1
+        return Y, P, y1
 
     def sigmas2(self, X, P):
         """
