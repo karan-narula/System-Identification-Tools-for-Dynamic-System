@@ -110,6 +110,8 @@ class PointBasedFilter(object):
         self.method = method
         self.order = order
         self.use_torch_tensor = use_torch_tensor
+        self.use_pre_alloc_tensors = False
+        self.use_pre_alloc_arrays = False
         # check if torch library was successfully imported
         if self.use_torch_tensor:
             assert torch_imported, "Pytorch module was not successfully imported which prohibits the use of tensor with this library"
@@ -119,6 +121,82 @@ class PointBasedFilter(object):
                 tensor_device, torch.device
             ), "Supplied tensor_device is a not a torch device object"
             self.tensor_device = tensor_device
+
+    def pre_alloc_tensors_or_arrays(self, n, nq, nqu, nr, numpy_dtype,
+                                    torch_dtype):
+        """
+        Certain tensors/arrays can be pre-allocated and used at all filtering times. This assumes that the problem remains the same, i.e."
+        dimensionality remains the same
+
+        Args:
+            n (int): dimensionality of state vector
+            nq (int): dimensionality of process model noise
+            nqu (int): dimensionality of input noise
+            nr (int): dimensionality of output/observation noise
+            numpy_dtype (type): type for numpy
+            torch_dtype (type): type for tensor
+
+        """
+        # dimensionality of augmented vector
+        n_aug = n + nq + nqu + nr
+        # use numpy for getting the sampled points
+        temp_use_torch_tensor = self.use_torch_tensor
+        self.use_torch_tensor = False
+        # get sampled points & weights of standard Gaussian distribution
+        X = np.zeros((n_aug, 1), dtype=numpy_dtype)
+        P = np.eye(n_aug, dtype=numpy_dtype)
+        # differentiate parameters based on method and order
+        if self.method == 'UKF':
+            if self.order == 2:
+                temp, L, W, WeightMat = self.sigmas2(X, P)
+            elif self.order == 4:
+                temp, L, W, WeightMat = self.sigmas4(X, P)
+        elif self.method == 'CKF':
+            if self.order == 2:
+                temp, L, W, WeightMat = self.cubature2(X, P)
+            elif self.order == 4:
+                temp, L, W, WeightMat = self.cubature4(X, P)
+        # revert back use torch tensor
+        self.use_torch_tensor = temp_use_torch_tensor
+
+        # store pre-allocated tensor/numpy differently
+        if self.use_torch_tensor:
+            # turn on the flag
+            self.use_pre_alloc_tensors = True
+            # weight and weight matrix tensors
+            self.tensor_W = torch.from_numpy(W).to(self.tensor_device)
+            self.tensor_WeightMat = torch.from_numpy(WeightMat).to(
+                self.tensor_device)
+            # sampled point tensor for standard guassian distribution
+            self.tensor_temp = torch.from_numpy(temp).to(self.tensor_device)
+            # input noise covariance
+            self.tensor_Qu = torch.zeros((nqu, nqu),
+                                         dtype=torch_dtype,
+                                         device=self.tensor_device)
+            # augmented state vector
+            self.tensor_Xaug = torch.zeros((nq + nqu + nr, 1),
+                                           dtype=torch_dtype,
+                                           device=self.tensor_device)
+        else:
+            # turn on the flag
+            self.use_pre_alloc_arrays = True
+            # weight and weight matrix arrays
+            self.array_W = W
+            self.array_WeightMat = WeightMat
+            # sampled point array for standard guassian distribution
+            self.array_temp = temp
+            # input noise covariance
+            self.array_Qu = np.zeros((nqu, nqu), dtype=numpy_dtype)
+            # augmented state vector
+            self.array_Xaug = np.zeros((nq + nqu + nr, 1), dtype=numpy_dtype)
+
+    def dis_pre_alloc(self):
+        """
+        Disable the use of pre-allocated tensors & arrays in the following filtering process
+        """
+        # turn off the flags
+        self.use_pre_alloc_tensors = False
+        self.use_pre_alloc_arrays = False
 
     def predict_and_or_update(self,
                               X,
@@ -169,17 +247,33 @@ class PointBasedFilter(object):
         else:
             nqu = 0
             if self.use_torch_tensor:
-                Qu = torch.zeros((nqu, nqu), dtype=X.dtype,
-                                 device=self.tensor_device)
+                if self.use_pre_alloc_tensors:
+                    Qu = self.tensor_Qu
+                else:
+                    Qu = torch.zeros((nqu, nqu),
+                                     dtype=X.dtype,
+                                     device=self.tensor_device)
             else:
-                Qu = np.zeros((nqu, nqu))
+                if self.use_pre_alloc_arrays:
+                    Qu = self.array_Qu
+                else:
+                    Qu = np.zeros((nqu, nqu))
         nr = R.shape[0]
         if self.use_torch_tensor:
-            X1 = torch.cat(
-                (X, torch.zeros((nq+nqu+nr, 1), dtype=X.dtype, device=self.tensor_device)), dim=0)
+            if self.use_pre_alloc_tensors:
+                X1 = torch.cat((X, self.tensor_Xaug), dim=0)
+            else:
+                X1 = torch.cat((X,
+                                torch.zeros((nq + nqu + nr, 1),
+                                            dtype=X.dtype,
+                                            device=self.tensor_device)),
+                               dim=0)
             P1 = torch.block_diag(P, Q, Qu, R)
         else:
-            X1 = np.concatenate((X, np.zeros((nq+nqu+nr, 1))), axis=0)
+            if self.use_pre_alloc_arrays:
+                X1 = np.concatenate((X, self.array_Xaug), axis=0)
+            else:
+                X1 = np.concatenate((X, np.zeros((nq + nqu + nr, 1))), axis=0)
             P1 = block_diag(P, Q, Qu, R)
 
         # if next input is not specified, take current one
@@ -328,10 +422,13 @@ class PointBasedFilter(object):
         """
         order = len(ia)
         if self.use_torch_tensor:
-            Y = torch.zeros((order, 1), dtype=x.dtype,
+            Y = torch.zeros((order, 1),
+                            dtype=x.dtype,
                             device=self.tensor_device)
+            qu = torch.zeros(u.shape, dtype=x.dtype, device=self.tensor_device)
         else:
             Y = np.zeros((order, 1))
+            qu = np.zeros(u.shape)
         y = x
         # Propagating sigma/cubature points through function (equation 5.25)
         for k in range(L):
@@ -339,8 +436,7 @@ class PointBasedFilter(object):
                 y[ia, k] = f(x[ia, k], u, x[iq, k], x[iqu, k],
                              *additional_args)
             else:
-                y[ia, k] = f(x[ia, k], u, x[iq, k], torch.zeros(u.shape, dtype=x.dtype, device=self.tensor_device)
-                             if self.use_torch_tensor else np.zeros(u.shape), *additional_args)
+                y[ia, k] = f(x[ia, k], u, x[iq, k], qu, *additional_args)
             # Calculating mean (equation 5.34)
             if self.use_torch_tensor:
                 Y += W[0, k] * y[np.arange(order), k:k + 1]
@@ -355,6 +451,32 @@ class PointBasedFilter(object):
             P = np.matmul(np.matmul(y1, WeightMat), y1.T)
 
         return Y, P, y1
+
+    def transformSigma(self, temp, X, P):
+        """
+        Function to transform sampled points from standard Gaussian distribution to Gaussian distribution with given mean and covariance
+
+        Args:
+            temp (numpy array [n x L]): sampled points representative of standard Gaussian distribution
+            X (numpy array [n x 1]): mean of Gaussian distribution
+            P (numpy array [n x n]): covariance matrix of Gaussian distribution
+
+        Returns:
+            x (numpy array [n x L]): sampled points representative of Gaussian distribution with given mean and covariance
+        """
+        # first perform SVD to get the square root matrix (step 3 of algorithm 5.1, equation 5.22)
+        # then step 4 of algorithm 5.1 equation 5.24
+        if self.use_torch_tensor:
+            U, D, _ = torch.linalg.svd(P)
+            sqP = torch.matmul(U, torch.diag(D**0.5))
+            x = X + torch.matmul(sqP, temp)
+        else:
+            U, D, _ = np.linalg.svd(P)
+            sqP = np.matmul(U, np.diag(D**0.5))
+            # Y = np.matlib.repmat(X, 1, L)
+            x = X + np.matmul(sqP, temp)
+
+        return x
 
     def sigmas2(self, X, P):
         """
@@ -373,40 +495,40 @@ class PointBasedFilter(object):
 
         """
         n = X.shape[0]
-        # some constants based on augmented dimentionality
-        Params = [1 - n/3.0, 1.0/6.0, math.sqrt(3.0)]
-        L = 2*n + 1
-        W = np.concatenate(
-            (np.array([[Params[0]]]), np.matlib.repmat(Params[1], 1, 2*n)), axis=1)
-        WeightMat = np.diag(np.squeeze(W))
-        if self.use_torch_tensor:
-            W = torch.from_numpy(W).to(self.tensor_device)
-            WeightMat = torch.from_numpy(WeightMat).to(self.tensor_device)
-
-        # first perform SVD to get the square root matrix (step 3 of algorithm 5.1, equation 5.22)
-        if self.use_torch_tensor:
-            U, D, _ = torch.linalg.svd(P)
-            sqP = torch.matmul(U, torch.diag(D**0.5))
+        L = 2 * n + 1
+        if self.use_pre_alloc_tensors:
+            W = self.tensor_W
+            WeightMat = self.tensor_WeightMat
+            temp = self.tensor_temp
+        elif self.use_pre_alloc_arrays:
+            W = self.array_W
+            WeightMat = self.array_WeightMat
+            temp = self.array_temp
         else:
-            U, D, _ = np.linalg.svd(P)
-            sqP = np.matmul(U, np.diag(D**0.5))
+            # some constants based on augmented dimentionality
+            Params = [1 - n / 3.0, 1.0 / 6.0, math.sqrt(3.0)]
+            W = np.concatenate(
+                (np.array([[Params[0]]]), np.matlib.repmat(
+                    Params[1], 1, 2 * n)),
+                axis=1)
+            WeightMat = np.diag(np.squeeze(W))
 
-        # create sigma point set (step 2 of algorithm 5.1)
-        temp = np.zeros((n, L))
-        loc = np.arange(n)
-        l_index = loc*L + loc + 1
-        temp.flat[l_index] = Params[2]
-        l_index += n
-        temp.flat[l_index] = -Params[2]
+            # create sigma point set (step 2 of algorithm 5.1)
+            temp = np.zeros((n, L))
+            loc = np.arange(n)
+            l_index = loc * L + loc + 1
+            temp.flat[l_index] = Params[2]
+            l_index += n
+            temp.flat[l_index] = -Params[2]
 
-        # step 4 of algorithm 5.1 equation 5.24
-        if self.use_torch_tensor:
-            temp = torch.from_numpy(temp).to(self.tensor_device)
-            Y = torch.tile(X, (1, L))
-            x = Y + torch.matmul(sqP, temp)
-        else:
-            Y = np.matlib.repmat(X, 1, L)
-            x = Y + np.matmul(sqP, temp)
+            # convert to tensors
+            if self.use_torch_tensor:
+                W = torch.from_numpy(W).to(self.tensor_device)
+                WeightMat = torch.from_numpy(WeightMat).to(self.tensor_device)
+                temp = torch.from_numpy(temp).to(self.tensor_device)
+
+        # get transformed sigma points
+        x = self.transformSigma(temp, X, P)
 
         # for debugging
         #self.verifySigma(temp, W, 3)
@@ -434,69 +556,62 @@ class PointBasedFilter(object):
 
         """
         n = X.shape[0]
-        # some constants based on augmented dimensionality
-        L = 2*n**2 + 1
-        W = np.concatenate((np.array([[1 + (n**2-7.0*n)/18.0]]), np.matlib.repmat(
-            (4-n)/18.0, 1, 2*n), np.matlib.repmat(1.0/36.0, 1, 2*n**2-2*n)), axis=1)
-        WeightMat = np.diag(np.squeeze(W))
-        if self.use_torch_tensor:
-            W = torch.from_numpy(W).to(self.tensor_device)
-            WeightMat = torch.from_numpy(WeightMat).to(self.tensor_device)
-
-        # first perform SVD to get the square root matrix (step 3 of algorithm 5.1, equation 5.22)
-        if self.use_torch_tensor:
-            U, D, _ = torch.linalg.svd(P)
-            sqP = torch.matmul(U, torch.diag(D**0.5))
+        L = 2 * n**2 + 1
+        if self.use_pre_alloc_tensors:
+            W = self.tensor_W
+            WeightMat = self.tensor_WeightMat
+            temp = self.tensor_temp
+        elif self.use_pre_alloc_arrays:
+            W = self.array_W
+            WeightMat = self.array_WeightMat
+            temp = self.array_temp
         else:
-            U, D, _ = np.linalg.svd(P)
-            sqP = np.matmul(U, np.diag(D**0.5))
+            # some constants based on augmented dimensionality
+            W = np.concatenate(
+                (np.array([[1 + (n**2 - 7.0 * n) / 18.0]
+                           ]), np.matlib.repmat((4 - n) / 18.0, 1, 2 * n),
+                 np.matlib.repmat(1.0 / 36.0, 1, 2 * n**2 - 2 * n)),
+                axis=1)
+            WeightMat = np.diag(np.squeeze(W))
 
-        # create sigma point set (step 2 of algorithm 5.1)
-        s = math.sqrt(3.0)
-        temp = np.zeros((n, 2*n+1))
-        loc = np.arange(n)
-        l_index = loc*(2*n+1) + loc + 1
-        temp.flat[l_index] = s
-        l_index += n
-        temp.flat[l_index] = -s
+            # create sigma point set (step 2 of algorithm 5.1)
+            s = math.sqrt(3.0)
+            temp1 = np.zeros((n, 2 * n + 1))
+            loc = np.arange(n)
+            l_index = loc * (2 * n + 1) + loc + 1
+            temp1.flat[l_index] = s
+            l_index += n
+            temp1.flat[l_index] = -s
 
-        # step 4 of algorithm 5.1 equation 5.24
-        if self.use_torch_tensor:
-            temp = torch.from_numpy(temp).to(self.tensor_device)
-            Y = torch.tile(X, (1, 2*n+1))
-            x = Y + torch.matmul(sqP, temp)
-        else:
-            Y = np.matlib.repmat(X, 1, 2*n+1)
-            x = Y + np.matmul(sqP, temp)
+            # create second type of sigma point: 2n**2 - 2n points based on (s2,s2) structure (step 2 of algorithm 5.1)
+            temp2 = np.zeros((n, 2 * n**2 - 2 * n))
+            count = comb(n, 2, exact=True)
+            loc = np.fromiter(itertools.chain.from_iterable(
+                itertools.combinations(range(n), 2)),
+                              int,
+                              count=count * 2).reshape(-1, 2)
+            l_index = loc * (2 * n**2 - 2 * n) + np.matlib.repmat(
+                np.arange(count)[:, np.newaxis], 1, 2)
+            for i in itertools.product([1, 2], repeat=2):
+                temp2.flat[l_index[:, 0]] = (-1)**i[0] * s
+                temp2.flat[l_index[:, 1]] = (-1)**i[1] * s
+                l_index += count
 
-        # create second type of sigma point: 2n**2 - 2n points based on (s2,s2) structure (step 2 of algorithm 5.1)
-        temp1 = np.zeros((n, 2*n**2 - 2*n))
-        count = comb(n, 2, exact=True)
-        loc = np.fromiter(itertools.chain.from_iterable(
-            itertools.combinations(range(n), 2)), int, count=count*2).reshape(-1, 2)
-        l_index = loc*(2*n**2 - 2*n) + \
-            np.matlib.repmat(np.arange(count)[:, np.newaxis], 1, 2)
-        for i in itertools.product([1, 2], repeat=2):
-            temp1.flat[l_index[:, 0]] = (-1)**i[0]*s
-            temp1.flat[l_index[:, 1]] = (-1)**i[1]*s
-            l_index += count
+            # concatenate sigma points
+            temp = np.concatenate((temp1, temp2), axis=1)
 
-        # step 4 of algorithm 5.1 equation 5.24
-        if self.use_torch_tensor:
-            temp1 = torch.from_numpy(temp1).to(self.tensor_device)
-            Y = torch.tile(X, (1, 2*n**2 - 2*n))
-            x = torch.cat((x, Y + torch.matmul(sqP, temp1)), dim=1)
-        else:
-            Y = np.matlib.repmat(X, 1, 2*n**2 - 2*n)
-            x = np.concatenate((x, Y + np.matmul(sqP, temp1)), axis=1)
+            # convert to tensors
+            if self.use_torch_tensor:
+                W = torch.from_numpy(W).to(self.tensor_device)
+                WeightMat = torch.from_numpy(WeightMat).to(self.tensor_device)
+                temp = torch.from_numpy(temp).to(self.tensor_device)
+
+        # get transformed sigma points
+        x = self.transformSigma(temp, X, P)
 
         # for debugging
         """
-        if self.use_torch_tensor:
-            temp2 = torch.cat((temp, temp1), dim=1)
-        else:
-            temp2 = np.concatenate((temp, temp1), axis=1)
-        self.verifySigma(temp2, W, 5)
+        self.verifySigma(temp, W, 5)
         print(self.verifyTransformedSigma(x, WeightMat, X, P))
         """
 
@@ -519,43 +634,41 @@ class PointBasedFilter(object):
 
         """
         n = X.shape[0]
-        # some constants based on augmented dimensionality
-        L = 2*n
-        W = np.matlib.repmat(1.0/L, 1, L)
-        WeightMat = np.diag(np.squeeze(W))
-        if self.use_torch_tensor:
-            W = torch.from_numpy(W).to(self.tensor_device)
-            WeightMat = torch.from_numpy(WeightMat).to(self.tensor_device)
-
-        # first perform SVD to get the square root matrix (step 3 of algorithm 5.1, equation 5.22)
-        if self.use_torch_tensor:
-            U, D, _ = torch.linalg.svd(P)
-            sqP = torch.matmul(U, torch.diag(D**0.5))
+        L = 2 * n
+        if self.use_pre_alloc_tensors:
+            W = self.tensor_W
+            WeightMat = self.tensor_WeightMat
+            temp = self.tensor_temp
+        elif self.use_pre_alloc_arrays:
+            W = self.array_W
+            WeightMat = self.array_WeightMat
+            temp = self.array_temp
         else:
-            U, D, _ = np.linalg.svd(P)
-            sqP = np.matmul(U, np.diag(D**0.5))
+            # some constants based on augmented dimensionality
+            W = np.matlib.repmat(1.0 / L, 1, L)
+            WeightMat = np.diag(np.squeeze(W))
 
-        # create sigma point set (step 2 of algorithm 5.1)
-        s = math.sqrt(n)
-        temp = np.zeros((n, L))
-        loc = np.arange(n)
-        l_index = loc*L + loc
-        temp.flat[l_index] = s
-        l_index += n
-        temp.flat[l_index] = -s
+            # create sigma point set (step 2 of algorithm 5.1)
+            s = math.sqrt(n)
+            temp = np.zeros((n, L))
+            loc = np.arange(n)
+            l_index = loc * L + loc
+            temp.flat[l_index] = s
+            l_index += n
+            temp.flat[l_index] = -s
 
-        # step 4 of algorithm 5.1 equation 5.24
-        if self.use_torch_tensor:
-            temp = torch.from_numpy(temp).to(self.tensor_device)
-            Y = torch.tile(X, (1, L))
-            x = Y + torch.matmul(sqP, temp)
-        else:
-            Y = np.matlib.repmat(X, 1, L)
-            x = Y + np.matmul(sqP, temp)
+            # convert to tensors
+            if self.use_torch_tensor:
+                W = torch.from_numpy(W).to(self.tensor_device)
+                WeightMat = torch.from_numpy(WeightMat).to(self.tensor_device)
+                temp = torch.from_numpy(temp).to(self.tensor_device)
+
+        # get transformed sigma points
+        x = self.transformSigma(temp, X, P)
 
         # for debugging
-        #self.verifySigma(temp, W, 2)
-        #print(self.verifyTransformedSigma(x, WeightMat, X, P))
+        # self.verifySigma(temp, W, 2)
+        # print(self.verifyTransformedSigma(x, WeightMat, X, P))
 
         return x, L, W, WeightMat
 
@@ -576,70 +689,63 @@ class PointBasedFilter(object):
 
         """
         n = X.shape[0]
-        # some constants based on augmented dimensionality
-        L = 2*n**2 + 1
-        W = np.concatenate((np.array([[2.0/(n+2.0)]]), np.matlib.repmat((4-n)/(2.0*(
-            n+2)**2), 1, 2*n), np.matlib.repmat(1.0/((n+2.0)**2), 1, 2*n**2-2*n)), axis=1)
-        WeightMat = np.diag(np.squeeze(W))
-        if self.use_torch_tensor:
-            W = torch.from_numpy(W).to(self.tensor_device)
-            WeightMat = torch.from_numpy(WeightMat).to(self.tensor_device)
-
-        # first perform SVD to get the square root matrix (step 3 of algorithm 5.1, equation 5.22)
-        if self.use_torch_tensor:
-            U, D, _ = torch.linalg.svd(P)
-            sqP = torch.matmul(U, torch.diag(D**0.5))
+        L = 2 * n**2 + 1
+        if self.use_pre_alloc_tensors:
+            W = self.tensor_W
+            WeightMat = self.tensor_WeightMat
+            temp = self.tensor_temp
+        elif self.use_pre_alloc_arrays:
+            W = self.array_W
+            WeightMat = self.array_WeightMat
+            temp = self.array_temp
         else:
-            U, D, _ = np.linalg.svd(P)
-            sqP = np.matmul(U, np.diag(D**0.5))
+            # some constants based on augmented dimensionality
+            W = np.concatenate(
+                (np.array([[2.0 / (n + 2.0)]]),
+                 np.matlib.repmat((4 - n) / (2.0 * (n + 2)**2), 1, 2 * n),
+                 np.matlib.repmat(1.0 / ((n + 2.0)**2), 1, 2 * n**2 - 2 * n)),
+                axis=1)
+            WeightMat = np.diag(np.squeeze(W))
 
-        # create sigma point set (step 2 of algorithm 5.1)
-        s = math.sqrt(n+2.0)
-        temp = np.zeros((n, 2*n+1))
-        loc = np.arange(n)
-        l_index = loc*(2*n+1) + loc + 1
-        temp.flat[l_index] = s
-        l_index += n
-        temp.flat[l_index] = -s
+            # create cubature point set (step 2 of algorithm 5.1)
+            s = math.sqrt(n + 2.0)
+            temp1 = np.zeros((n, 2 * n + 1))
+            loc = np.arange(n)
+            l_index = loc * (2 * n + 1) + loc + 1
+            temp1.flat[l_index] = s
+            l_index += n
+            temp1.flat[l_index] = -s
 
-        # step 4 of algorithm 5.1 equation 5.24
-        if self.use_torch_tensor:
-            temp = torch.from_numpy(temp).to(self.tensor_device)
-            Y = torch.tile(X, (1, 2*n+1))
-            x = Y + torch.matmul(sqP, temp)
-        else:
-            Y = np.matlib.repmat(X, 1, 2*n+1)
-            x = Y + np.matmul(sqP, temp)
+            # create second type of cubature point: 2n**2 - 2n points based on (s2,s2) structure (step 2 of algorithm 5.1)
+            s = math.sqrt(n + 2.0) / math.sqrt(2.0)
+            temp2 = np.zeros((n, 2 * n**2 - 2 * n))
+            count = comb(n, 2, exact=True)
+            loc = np.fromiter(itertools.chain.from_iterable(
+                itertools.combinations(range(n), 2)),
+                              int,
+                              count=count * 2).reshape(-1, 2)
+            l_index = loc * (2 * n**2 - 2 * n) + np.matlib.repmat(
+                np.arange(count)[:, np.newaxis], 1, 2)
+            for i in itertools.product([1, 2], repeat=2):
+                temp2.flat[l_index[:, 0]] = (-1)**i[0] * s
+                temp2.flat[l_index[:, 1]] = (-1)**i[1] * s
+                l_index += count
 
-        # create second type of sigma point: 2n**2 - 2n points based on (s2,s2) structure (step 2 of algorithm 5.1)
-        s = math.sqrt(n+2.0)/math.sqrt(2.0)
-        temp1 = np.zeros((n, 2*n**2 - 2*n))
-        count = comb(n, 2, exact=True)
-        loc = np.fromiter(itertools.chain.from_iterable(
-            itertools.combinations(range(n), 2)), int, count=count*2).reshape(-1, 2)
-        l_index = loc*(2*n**2 - 2*n) + \
-            np.matlib.repmat(np.arange(count)[:, np.newaxis], 1, 2)
-        for i in itertools.product([1, 2], repeat=2):
-            temp1.flat[l_index[:, 0]] = (-1)**i[0]*s
-            temp1.flat[l_index[:, 1]] = (-1)**i[1]*s
-            l_index += count
+            # concatenate cubature points
+            temp = np.concatenate((temp1, temp2), axis=1)
 
-        # step 4 of algorithm 5.1 equation 5.24
-        if self.use_torch_tensor:
-            temp1 = torch.from_numpy(temp1).to(self.tensor_device)
-            Y = torch.tile(X, (1, 2*n**2 - 2*n))
-            x = torch.cat((x, Y + torch.matmul(sqP, temp1)), dim=1)
-        else:
-            Y = np.matlib.repmat(X, 1, 2*n**2 - 2*n)
-            x = np.concatenate((x, Y + np.matmul(sqP, temp1)), axis=1)
+            # convert to tensors
+            if self.use_torch_tensor:
+                W = torch.from_numpy(W).to(self.tensor_device)
+                WeightMat = torch.from_numpy(WeightMat).to(self.tensor_device)
+                temp = torch.from_numpy(temp).to(self.tensor_device)
+
+        # get transformed sigma points
+        x = self.transformSigma(temp, X, P)
 
         # for debugging
         """
-        if self.use_torch_tensor:
-            temp2 = torch.cat((temp, temp1), dim=1)
-        else:
-            temp2 = np.concatenate((temp, temp1), axis=1)
-        self.verifySigma(temp2, W, 5)
+        self.verifySigma(temp, W, 5)
         print(self.verifyTransformedSigma(x, WeightMat, X, P))
         """
 
