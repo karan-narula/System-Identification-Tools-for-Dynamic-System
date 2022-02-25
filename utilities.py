@@ -7,6 +7,9 @@ import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
 
 from estimators import PointBasedFilter, PointBasedFixedLagSmoother
+import time
+import cProfile
+import pstats
 
 try:
     import torch
@@ -304,6 +307,79 @@ def solve_ivp_dyn_obj(dynamic_obj, T=None, U=None, plot_result=False, plot_euler
         plt.show()
 
     return ivp_result
+
+
+def profile_filter(dynamic_obj,
+                   method='CKF',
+                   order=2,
+                   obs_freq=float('inf'),
+                   use_torch_tensor=False,
+                   tensor_device=None,
+                   num_iter=100):
+    # create instance of the filter
+    pbgf = PointBasedFilter(method,
+                            order,
+                            use_torch_tensor=use_torch_tensor,
+                            tensor_device=tensor_device)
+
+    if hasattr(dynamic_obj, 'innovation_bound_func'):
+        innovation_bound_func = dynamic_obj.innovation_bound_func
+    else:
+        innovation_bound_func = {}
+
+    # initialisation
+    X = dynamic_obj.initial_cond.copy()
+    P = dynamic_obj.P0.copy()
+    if use_torch_tensor:
+        # check whether import was successful
+        assert torch_imported, "Pytorch module was not successfully imported which prohibits the use of tensor with this library"
+
+        X = torch.from_numpy(X).to(tensor_device).requires_grad_()
+        P = torch.from_numpy(P).to(tensor_device).requires_grad_()
+
+        # preallocate some tensors to speed things up
+        pbgf.pre_alloc_tensors_or_arrays(len(X), dynamic_obj.Q.shape[0], 0,
+                                         dynamic_obj.R.shape[0],
+                                         dynamic_obj.P0.dtype, X.dtype)
+        dynamic_obj.pre_alloc_tensors(len(dynamic_obj.est_params),
+                                      tensor_device, X.dtype)
+
+    output = dynamic_obj.outputs[:, 0]
+    num_sol = len(dynamic_obj.T)
+
+    # start profiling code
+    #profile = cProfile.Profile()
+    #profile.enable()
+
+    # filtering loop
+    start_time = time.perf_counter()
+    for i in range(min(num_sol, num_iter)):
+        X1, P1 = pbgf.predict_and_or_update(
+            X,
+            P,
+            dynamic_obj.process_model,
+            dynamic_obj.observation_model,
+            dynamic_obj.Q,
+            dynamic_obj.R,
+            dynamic_obj.U[:, i - 1],
+            output,
+            dynamic_obj.U[:, i],
+            additional_args_pm=[
+                sub[i - 1] for sub in dynamic_obj.additional_args_pm_list
+            ],
+            additional_args_om=[
+                sub[i] for sub in dynamic_obj.additional_args_om_list
+            ],
+            innovation_bound_func=innovation_bound_func)
+
+    end_time = time.perf_counter() - start_time
+    print("Time taken is {}".format(end_time / num_iter))
+
+    # stop profiling
+    #profile.disable()
+    #ps = pstats.Stats(profile)
+    #ps.strip_dirs().sort_stats('cumtime', 'ncalls')
+    #ps.print_stats(20)
 
 
 def create_filtered_estimates(dynamic_obj, method='CKF', order=2, obs_freq=float('inf'), use_torch_tensor=False, tensor_device=None):
