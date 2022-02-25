@@ -71,6 +71,7 @@ class AbstractDyn(object):
 
         # store whether user will be using torch tensor or not
         self.use_torch_tensor = use_torch_tensor
+        self.use_pre_alloc_tensors = False
 
         # default value of tensor complaince of dynamic object to False
         if 'tensor_compliance' not in self.__dir__():
@@ -123,6 +124,24 @@ class AbstractDyn(object):
             assert torch_imported, "Pytorch module was not successfully imported which prohibits the use of tensor with this library"
 
             assert self.tensor_compliance, "Dynamic class is not yet tensor compliant"
+
+    def pre_alloc_tensors(self, num_params, tensor_device, dtype):
+        """
+        Pre-allocate some tensors instead of creating them on the fly
+
+        Args:
+            num_params (int): dimensionality of parameters to be estimated
+            tensor_device : device in which pre-allocated tensor is to be stored
+            dtype (type): type for tensor
+
+        """
+        if self.use_torch_tensor:
+            # turn on the flag
+            self.use_pre_alloc_tensors = True
+            # default empty tensor
+            self.tensor_empty = torch.empty(0, device=tensor_device, dtype=dtype)
+            # zero tensor to be augmented when performing partial dxdt
+            self.tensor_params_dxdt = torch.zeros((1, num_params), device=tensor_device, dtype=dtype)
 
     def sample_nlds(self, z0, U, T, Q=None, P0=None, R=None, Qu=None, store_variables=True, overwrite_keys=[], overwrite_vals=[]):
         """
@@ -259,7 +278,10 @@ class AbstractDyn(object):
             output (numpy array [len(self.additional_output_keys) x 1): observed additional output
         """
         if self.use_torch_tensor:
-            return torch.empty(0, device=state.device)
+            if self.use_pre_alloc_tensors:
+                return self.tensor_empty
+            else:
+                return torch.empty(0, device=state.device)
         else:
             return np.array([])
 
@@ -282,7 +304,10 @@ class AbstractDyn(object):
                 dxdt = self.dxdt(state, u, param_dict)
                 state_dot_out = dxdt[0, self.state_dot_indices]
             else:
-                state_dot_out = torch.empty(0).to(state.device)
+                if self.use_pre_alloc_tensors:
+                    state_dot_out = self.tensor_empty
+                else:
+                    state_dot_out = torch.empty(0).to(state.device)
             return torch.cat((state[self.state_indices], state_dot_out, self.additional_output_model(state, u, param_dict)))
         else:
             return np.concatenate((state[self.state_indices], self.dxdt(state, u, param_dict)[0, self.state_dot_indices], self.additional_output_model(state, u, param_dict)))
@@ -669,7 +694,11 @@ def partial_dxdt(obj, class_type, state, u, param_dict):
     if obj.use_torch_tensor:
         for i, est_param in enumerate(obj.est_params):
             param_dict[est_param] = param_dict[est_param].cpu().item()
-        return torch.cat((state_dot, torch.zeros((1, len(obj.est_params)), device=state_dot.device, dtype=state_dot.dtype)), dim=1)
+        if obj.use_pre_alloc_tensors:
+            params_dxdt = obj.tensor_params_dxdt
+        else:
+            params_dxdt = torch.zeros((1, len(obj.est_params)), device=state_dot.device, dtype=state_dot.dtype)
+        return torch.cat((state_dot, params_dxdt), dim=1)
     else:
         return np.concatenate((state_dot, np.zeros((1, len(obj.est_params)))), axis=1)
 
