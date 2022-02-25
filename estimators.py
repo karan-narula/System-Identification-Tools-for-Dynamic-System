@@ -1705,18 +1705,41 @@ def test_pbgf_linear(n=10, m=5, nt=10):
     x_gt, x0, outputs = sample_nlds(X, [], nt, process_model,
                                     observation_model, m, Q, P, R)[0:3]
 
+    # test torch tensor version of the filters as well if torch was imported
+    use_torch_tensors = [False]
+    if torch_imported:
+        use_torch_tensors.append(True)
+        # create tensor equivalence of other numpys
+        Q_tensor = torch.from_numpy(Q)
+        R_tensor = torch.from_numpy(R)
+        J_tensor = torch.from_numpy(J)
+        H_tensor = torch.from_numpy(H)
+        outputs_tensor = torch.from_numpy(outputs)
+
+        def process_model_tensor(x, u, noise, input_noise):
+            return torch.matmul(J_tensor, x) + noise
+
+        def observation_model_tensor(x, u, noise):
+            return torch.matmul(H_tensor, x) + noise
+
     # create multiple instances of PBGF for all methods and orders
+    torch_dtype = torch.from_numpy(X).dtype
     pbgfs = []
     pbgf_strs = []
     for method in PointBasedFilter.methods:
         for order in PointBasedFilter.orders:
-            # create one instance without array optimisation while the other with
-            pbgfs.append(PointBasedFilter(method, order))
-            pbgf_strs.append(method + str(order))
-            pbgfs.append(PointBasedFilter(method, order))
-            pbgfs[-1].pre_alloc_tensors_or_arrays(n, Q.shape[0], 0, R.shape[0],
-                                                  X.dtype, None)
-            pbgf_strs.append(method + str(order) + "_optim")
+            for use_torch_tensor, use_torch_str in zip(use_torch_tensors,
+                                                       ["", "_tensor"]):
+                # create one instance without array optimisation while the other with
+                for optim_flag, optim_str in zip([False, True],
+                                                 ["", "_optim"]):
+                    pbgfs.append(
+                        PointBasedFilter(method, order, use_torch_tensor))
+                    pbgf_strs.append(method + str(order) + use_torch_str +
+                                     optim_str)
+                    if optim_flag:
+                        pbgfs[-1].pre_alloc_tensors_or_arrays(
+                            n, Q.shape[0], 0, R.shape[0], X.dtype, torch_dtype)
 
     ## loop through and compare result from KF and a pbgf
     X1 = x0.copy()
@@ -1744,10 +1767,23 @@ def test_pbgf_linear(n=10, m=5, nt=10):
         X0 = X2.copy()
         P0 = P2.copy()
         for pbgf, pbgf_str in zip(pbgfs, pbgf_strs):
-            X2, P2 = pbgf.predict_and_or_update(X0, P0, process_model,
-                                                observation_model, Q, R,
-                                                np.array([]), outputs[:,
+            if "tensor" in pbgf_str:
+                X0 = torch.from_numpy(X0)
+                P0 = torch.from_numpy(P0)
+                X2, P2 = pbgf.predict_and_or_update(
+                    X0, P0, process_model_tensor,
+                    observation_model_tensor, Q_tensor, R_tensor,
+                    torch.empty(0, dtype=torch_dtype), outputs_tensor[:,
                                                                       i:i + 1])
+                X0 = X0.numpy()
+                X2 = X2.numpy()
+                P0 = P0.numpy()
+                P2 = P2.numpy()
+            else:
+                X2, P2 = pbgf.predict_and_or_update(X0, P0, process_model,
+                                                    observation_model, Q, R,
+                                                    np.array([]),
+                                                    outputs[:, i:i + 1])
 
             assert np.allclose(
                 P1, P2
@@ -1808,18 +1844,34 @@ def test_pbgf_1d_linear(gt_const=10.0,
     x_gt, x0, outputs = sample_nlds(X, [], nt, process_model,
                                     observation_model, 1, Q, P, R)[0:3]
 
+    # test torch tensor version of the filters as well if torch was imported
+    use_torch_tensors = [False]
+    if torch_imported:
+        use_torch_tensors.append(True)
+        # create tensor equivalence of other numpys
+        Q_tensor = torch.from_numpy(Q)
+        R_tensor = torch.from_numpy(R)
+        outputs_tensor = torch.from_numpy(outputs)
+
     # create multiple instances of PBGF for all methods and orders
+    torch_dtype = torch.from_numpy(X).dtype
     pbgfs = []
     pbgf_strs = []
     for method in PointBasedFilter.methods:
         for order in PointBasedFilter.orders:
-            # create one instance without array optimisation while the other with
-            pbgfs.append(PointBasedFilter(method, order))
-            pbgf_strs.append(method + str(order))
-            pbgfs.append(PointBasedFilter(method, order))
-            pbgfs[-1].pre_alloc_tensors_or_arrays(X.shape[0], Q.shape[0], 0,
-                                                  R.shape[0], X.dtype, None)
-            pbgf_strs.append(method + str(order) + "_optim")
+            for use_torch_tensor, use_torch_str in zip(use_torch_tensors,
+                                                       ["", "_tensor"]):
+                # create one instance without array optimisation while the other with
+                for optim_flag, optim_str in zip([False, True],
+                                                 ["", "_optim"]):
+                    pbgfs.append(
+                        PointBasedFilter(method, order, use_torch_tensor))
+                    pbgf_strs.append(method + str(order) + use_torch_str +
+                                     optim_str)
+                    if optim_flag:
+                        pbgfs[-1].pre_alloc_tensors_or_arrays(
+                            X.shape[0], Q.shape[0], 0, R.shape[0], X.dtype,
+                            torch_dtype)
 
     ## loop through and compare result from KF and a pbgf
     X1 = x0.copy()
@@ -1848,10 +1900,23 @@ def test_pbgf_1d_linear(gt_const=10.0,
         X0 = X2.copy()
         P0 = P2.copy()
         for pbgf, pbgf_str in zip(pbgfs, pbgf_strs):
-            X2, P2 = pbgf.predict_and_or_update(X0, P0, process_model,
-                                                observation_model, Q, R,
-                                                np.array([]), outputs[:,
+            if "tensor" in pbgf_str:
+                X0 = torch.from_numpy(X0)
+                P0 = torch.from_numpy(P0)
+                X2, P2 = pbgf.predict_and_or_update(
+                    X0, P0, process_model,
+                    observation_model, Q_tensor, R_tensor,
+                    torch.empty(0, dtype=torch_dtype), outputs_tensor[:,
                                                                       i:i + 1])
+                X0 = X0.numpy()
+                X2 = X2.numpy()
+                P0 = P0.numpy()
+                P2 = P2.numpy()
+            else:
+                X2, P2 = pbgf.predict_and_or_update(X0, P0, process_model,
+                                                    observation_model, Q, R,
+                                                    np.array([]),
+                                                    outputs[:, i:i + 1])
 
             assert np.allclose(
                 P1, P2
