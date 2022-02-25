@@ -20,14 +20,19 @@ except ImportError:
 
 
 def bind_npi_pi(angles):
-    angles = np.fmod(angles + math.pi, 2*math.pi)
-    angles[angles < 0] += 2*math.pi
+    angles = np.fmod(angles + math.pi, 2 * math.pi)
+    angles[angles < 0] += 2 * math.pi
     angles -= math.pi
 
     return angles
 
 
-def create_dyn_obj(dyn_class, param_dict, simulate_gt=False, real_output=True, re_initialise=False, **kwargs):
+def create_dyn_obj(dyn_class,
+                   param_dict,
+                   simulate_gt=False,
+                   real_output=True,
+                   re_initialise=False,
+                   **kwargs):
     """
     Create dynamic object for specified class encapsulating some information useful during the estimation process
 
@@ -75,29 +80,35 @@ def create_dyn_obj(dyn_class, param_dict, simulate_gt=False, real_output=True, r
 
     init_state_cov = kwargs.get('init_state_cov', 0.0)
     if not isinstance(init_state_cov, Iterable):
-        init_state_cov = [init_state_cov]*len(state_dict)
+        init_state_cov = [init_state_cov] * len(state_dict)
 
-    init_params = kwargs.get('init_params', [0.0]*len(est_params))
+    init_params = kwargs.get('init_params', [0.0] * len(est_params))
     if not isinstance(init_params, Iterable):
         init_params = [init_params]
 
     init_param_cov = kwargs.get('init_param_cov', 0.0)
     if not isinstance(init_param_cov, Iterable):
-        init_param_cov = [init_param_cov]*len(est_params)
+        init_param_cov = [init_param_cov] * len(est_params)
 
-    assert len(est_params) == len(init_param_cov), "Expected parameters to be estimated to be of the same length as initial covariance but instead got {} and {} respectively".format(
+    assert len(est_params) == len(
+        init_param_cov
+    ), "Expected parameters to be estimated to be of the same length as initial covariance but instead got {} and {} respectively".format(
         len(est_params), len(init_param_cov))
-    assert len(init_state_cov) == len(state_dict), "Expected initial covariance of the states to be of size {} but instead got {}".format(
+    assert len(init_state_cov) == len(
+        state_dict
+    ), "Expected initial covariance of the states to be of size {} but instead got {}".format(
         len(state_dict), len(init_state_cov))
-    assert len(init_params) == len(est_params), "Initial value of parameters must be of the same length as the list of parameters to be instead but instead got {} and {} respectively".format(
+    assert len(init_params) == len(
+        est_params
+    ), "Initial value of parameters must be of the same length as the list of parameters to be instead but instead got {} and {} respectively".format(
         len(init_params), len(est_params))
 
     # covariance matrix of additive GWN in stochastic model
-    temp = [0.0]*len(state_dict)
+    temp = [0.0] * len(state_dict)
     for key in state_dict:
         temp[state_dict[key]] = kwargs.get('std_' + key, 0.0)**2
     time_varying_q = kwargs.get('time_varying_q', 0.0)
-    temp.extend([time_varying_q]*len(est_params))
+    temp.extend([time_varying_q] * len(est_params))
     Q = np.diag(temp)
 
     # covariance matrix of additive GWN in observation model
@@ -108,29 +119,34 @@ def create_dyn_obj(dyn_class, param_dict, simulate_gt=False, real_output=True, r
     if real_output:
         output_data_keys = kwargs.get('output_data_keys', state_dict.keys())
         output_data_dot_keys = kwargs.get('output_data_dot_keys', [])
-        output_data_additional_keys = kwargs.get(
-            'output_data_additional_keys', [])
-        assert len(output_data_keys) == len(output_keys), "Expected output keys to be of the same length as its mapping in data file but instead got {} and {} respectively".format(
+        output_data_additional_keys = kwargs.get('output_data_additional_keys',
+                                                 [])
+        assert len(output_data_keys) == len(
+            output_keys
+        ), "Expected output keys to be of the same length as its mapping in data file but instead got {} and {} respectively".format(
             len(output_data_keys), len(output_keys))
-        assert len(output_dot_keys) == len(output_data_dot_keys), "Expected derivative of output keys to be of the same length as its mapping in data file but instead got {} and {} respectively".format(
+        assert len(output_dot_keys) == len(
+            output_data_dot_keys
+        ), "Expected derivative of output keys to be of the same length as its mapping in data file but instead got {} and {} respectively".format(
             len(output_dot_keys), len(output_data_dot_keys))
-        assert len(output_additional_keys) == len(output_data_additional_keys), "Expected additional output keys to be of the same length as its mapping in data file but instead got {} and {} respectively".format(
+        assert len(output_additional_keys) == len(
+            output_data_additional_keys
+        ), "Expected additional output keys to be of the same length as its mapping in data file but instead got {} and {} respectively".format(
             len(output_additional_keys), len(output_data_additional_keys))
 
     vars_out = []
     for output_key in output_keys:
         if output_key in state_dict:
-            vars_out.append(kwargs.get(
-                'std_' + output_key + '_out', 0.10)**2)
+            vars_out.append(kwargs.get('std_' + output_key + '_out', 0.10)**2)
 
     for output_dot_key in output_dot_keys:
         if output_dot_key in state_dict:
-            vars_out.append(kwargs.get(
-                'std_' + output_dot_key + '_dot_out', 0.10)**2)
+            vars_out.append(
+                kwargs.get('std_' + output_dot_key + '_dot_out', 0.10)**2)
 
     for output_additional_key in output_additional_keys:
-        vars_out.append(kwargs.get(
-            'std_' + output_additional_key + '_out', 0.10)**2)
+        vars_out.append(
+            kwargs.get('std_' + output_additional_key + '_out', 0.10)**2)
 
     R = np.diag(vars_out)
 
@@ -142,19 +158,19 @@ def create_dyn_obj(dyn_class, param_dict, simulate_gt=False, real_output=True, r
         if isinstance(param_dict[key], Iterable):
             if len(param_dict[key]) != len(T):
                 temp = param_dict[key].copy()
-                param_dict[key] = [temp[-1]]*len(T)
+                param_dict[key] = [temp[-1]] * len(T)
 
-                num_each = math.floor(len(T)/len(temp))
+                num_each = math.floor(len(T) / len(temp))
                 ind = 0
                 for item in temp:
-                    param_dict[key][ind:ind+num_each] = [item]*num_each
+                    param_dict[key][ind:ind + num_each] = [item] * num_each
                     ind += num_each
             if key in est_params:
                 overwrite_keys.append(key)
                 overwrite_vals.append(param_dict[key].copy())
 
     # ground truth initial condition
-    z0 = [0.0]*len(state_dict)
+    z0 = [0.0] * len(state_dict)
     if real_output:
         z0.extend(init_params)
     else:
@@ -174,12 +190,24 @@ def create_dyn_obj(dyn_class, param_dict, simulate_gt=False, real_output=True, r
     use_torch_tensor = kwargs.get('use_torch_tensor', False)
 
     # create dynamic object, optionall ground truth data and noisy states
-    dynamic_obj = dyn_class(param_dict, est_params, state_keys=output_keys, state_dot_keys=output_dot_keys,
-                            additional_output_keys=output_additional_keys, simulate_gt=simulate_gt, use_torch_tensor=use_torch_tensor)
+    dynamic_obj = dyn_class(param_dict,
+                            est_params,
+                            state_keys=output_keys,
+                            state_dot_keys=output_dot_keys,
+                            additional_output_keys=output_additional_keys,
+                            simulate_gt=simulate_gt,
+                            use_torch_tensor=use_torch_tensor)
     if simulate_gt and not real_output:
         U = kwargs.get('U', np.array([]))
-        dynamic_obj.sample_nlds(z0, U, T, Q=Q, P0=P0, R=R, store_variables=True,
-                                overwrite_keys=overwrite_keys, overwrite_vals=overwrite_vals)
+        dynamic_obj.sample_nlds(z0,
+                                U,
+                                T,
+                                Q=Q,
+                                P0=P0,
+                                R=R,
+                                store_variables=True,
+                                overwrite_keys=overwrite_keys,
+                                overwrite_vals=overwrite_vals)
         if re_initialise:
             dynamic_obj.re_initialise()
     else:
@@ -199,13 +227,15 @@ def create_dyn_obj(dyn_class, param_dict, simulate_gt=False, real_output=True, r
             innovation_bound_func[dynamic_obj.state_indices.index(
                 state_dict[angle_state])] = bind_npi_pi
         if state_dict[angle_state] in dynamic_obj.state_dot_indices:
-            innovation_bound_func[len(
-                dynamic_obj.state_indices) + dynamic_obj.state_dot_indices.index(state_dict[angle_state])] = bind_npi_pi
+            innovation_bound_func[len(dynamic_obj.state_indices) +
+                                  dynamic_obj.state_dot_indices.index(
+                                      state_dict[angle_state])] = bind_npi_pi
 
     dynamic_obj.innovation_bound_func = innovation_bound_func
 
     # randomly add or substract even number of pi to angle outputs
-    if len(dynamic_obj.innovation_bound_func.keys()) and simulate_gt and not real_output:
+    if len(dynamic_obj.innovation_bound_func.keys()
+           ) and simulate_gt and not real_output:
         pis_factor_list = [i for i in range(10) if i % 2 == 0]
         original_outputs = dynamic_obj.outputs.copy()
         for i in range(dynamic_obj.outputs.shape[1]):
@@ -214,13 +244,19 @@ def create_dyn_obj(dyn_class, param_dict, simulate_gt=False, real_output=True, r
             add_or_subtract = np.random.choice([0, 1])
             number_of_pis = np.random.choice(pis_factor_list)
             original_value = dynamic_obj.outputs[index_to_mod, i]
-            dynamic_obj.outputs[index_to_mod,
-                                i] += ((-1)**add_or_subtract)*number_of_pis*math.pi
+            dynamic_obj.outputs[index_to_mod, i] += (
+                (-1)**add_or_subtract) * number_of_pis * math.pi
 
     return dynamic_obj
 
 
-def solve_ivp_dyn_obj(dynamic_obj, T=None, U=None, plot_result=False, plot_euler_result=False, num_rows=3,  method='RK45'):
+def solve_ivp_dyn_obj(dynamic_obj,
+                      T=None,
+                      U=None,
+                      plot_result=False,
+                      plot_euler_result=False,
+                      num_rows=3,
+                      method='RK45'):
     """
     Useful function to instead solve the first-order differential equation using generic solver and compare against first order Euler
 
@@ -249,8 +285,8 @@ def solve_ivp_dyn_obj(dynamic_obj, T=None, U=None, plot_result=False, plot_euler
         taken_T_from_dyn_obj = True
     if U is None:
         U = dynamic_obj.U
-    assert np.array(T.shape).max() == np.array(U.shape).max(
-    ), "Time and input matrices should be of the same length"
+    assert np.array(T.shape).max() == np.array(
+        U.shape).max(), "Time and input matrices should be of the same length"
 
     # create time span based on stored time instances
     t_span = [T[0], T[-1]]
@@ -267,8 +303,11 @@ def solve_ivp_dyn_obj(dynamic_obj, T=None, U=None, plot_result=False, plot_euler
 
         return dynamic_obj.dxdt(z, u, param_dict).flatten()
 
-    ivp_result = solve_ivp(
-        dxdt, t_span, dynamic_obj.initial_cond.flatten(), method=method, t_eval=T)
+    ivp_result = solve_ivp(dxdt,
+                           t_span,
+                           dynamic_obj.initial_cond.flatten(),
+                           method=method,
+                           t_eval=T)
 
     # re-initialise dynamic object if still in simulated gt
     if dynamic_obj.simulate_gt:
@@ -280,19 +319,21 @@ def solve_ivp_dyn_obj(dynamic_obj, T=None, U=None, plot_result=False, plot_euler
         num_subplots = len(dynamic_obj.global_state_dict.keys())
         if num_subplots < num_rows:
             num_rows = num_subplots
-        num_cols = int(math.ceil(num_subplots/float(num_rows)))
+        num_cols = int(math.ceil(num_subplots / float(num_rows)))
 
         # plot the states
         plt.figure(1)
         for i, key in enumerate(dynamic_obj.global_state_dict):
             # subplot
-            plt.subplot(num_rows, num_cols, i+1)
+            plt.subplot(num_rows, num_cols, i + 1)
 
             index = dynamic_obj.global_state_dict[key]
             # plot the gt states from first-order Euler
             if plot_euler_result:
-                plt.plot(
-                    dynamic_obj.T, dynamic_obj.gt_states[index, :], label='first order Euler', linestyle='--')
+                plt.plot(dynamic_obj.T,
+                         dynamic_obj.gt_states[index, :],
+                         label='first order Euler',
+                         linestyle='--')
 
             # plot the states from solver
             if plot_result:
@@ -403,8 +444,10 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2, obs_freq=float
     """
 
     # create instance of the filter
-    pbgf = PointBasedFilter(
-        method, order, use_torch_tensor=use_torch_tensor, tensor_device=tensor_device)
+    pbgf = PointBasedFilter(method,
+                            order,
+                            use_torch_tensor=use_torch_tensor,
+                            tensor_device=tensor_device)
 
     if hasattr(dynamic_obj, 'innovation_bound_func'):
         innovation_bound_func = dynamic_obj.innovation_bound_func
@@ -432,29 +475,47 @@ def create_filtered_estimates(dynamic_obj, method='CKF', order=2, obs_freq=float
 
     for i in range(1, num_sol):
         # get output for desired frquency
-        if time_since_last_update >= 1/obs_freq:
+        if time_since_last_update >= 1 / obs_freq:
             time_since_last_update = 0.0
-            output = dynamic_obj.outputs[:, i:i+1]
+            output = dynamic_obj.outputs[:, i:i + 1]
         else:
-            time_since_last_update += dynamic_obj.T[i] - dynamic_obj.T[i-1]
+            time_since_last_update += dynamic_obj.T[i] - dynamic_obj.T[i - 1]
             output = []
 
         # perform prediction and update
-        X, P = pbgf.predict_and_or_update(X, P, dynamic_obj.process_model, dynamic_obj.observation_model, dynamic_obj.Q, dynamic_obj.R, dynamic_obj.U[:, i-1], output, dynamic_obj.U[:, i], additional_args_pm=[
-                                          sub[i-1] for sub in dynamic_obj.additional_args_pm_list], additional_args_om=[sub[i] for sub in dynamic_obj.additional_args_om_list], innovation_bound_func=innovation_bound_func)
+        X, P = pbgf.predict_and_or_update(
+            X,
+            P,
+            dynamic_obj.process_model,
+            dynamic_obj.observation_model,
+            dynamic_obj.Q,
+            dynamic_obj.R,
+            dynamic_obj.U[:, i - 1],
+            output,
+            dynamic_obj.U[:, i],
+            additional_args_pm=[
+                sub[i - 1] for sub in dynamic_obj.additional_args_pm_list
+            ],
+            additional_args_om=[
+                sub[i] for sub in dynamic_obj.additional_args_om_list
+            ],
+            innovation_bound_func=innovation_bound_func)
 
         # store result from latest prediction/update step
         if use_torch_tensor:
-            est_states[:, i:i+1] = X.detach().cpu().numpy()
+            est_states[:, i:i + 1] = X.detach().cpu().numpy()
             cov_states[:, :, i] = P.detach().cpu().numpy()
         else:
-            est_states[:, i:i+1] = X.copy()
+            est_states[:, i:i + 1] = X.copy()
             cov_states[:, :, i] = P.copy()
 
     return est_states, cov_states
 
 
-def create_smoothed_estimates(dynamic_obj, method='CKF', order=2, lag_interval=5):
+def create_smoothed_estimates(dynamic_obj,
+                              method='CKF',
+                              order=2,
+                              lag_interval=5):
     """
     Generate mean and covariance of smoothing distribution at various times for the problem defined by the dynamic object.
 
@@ -487,21 +548,43 @@ def create_smoothed_estimates(dynamic_obj, method='CKF', order=2, lag_interval=5
     cov_states = np.zeros(
         (dynamic_obj.num_states, dynamic_obj.num_states, num_sol))
     for i in range(1, num_sol):
-        X_smooth_fi, P_smooth_fi, smooth_flag = pbgf.predict_and_or_update(dynamic_obj.process_model, dynamic_obj.observation_model, dynamic_obj.Q, dynamic_obj.R, dynamic_obj.U[:, i-1], dynamic_obj.outputs[:, i:i+1], dynamic_obj.U[:, i], additional_args_pm=[
-                                                                           sub[i-1] for sub in dynamic_obj.additional_args_pm_list], additional_args_om=[sub[i] for sub in dynamic_obj.additional_args_om_list], innovation_bound_func=innovation_bound_func)
+        X_smooth_fi, P_smooth_fi, smooth_flag = pbgf.predict_and_or_update(
+            dynamic_obj.process_model,
+            dynamic_obj.observation_model,
+            dynamic_obj.Q,
+            dynamic_obj.R,
+            dynamic_obj.U[:, i - 1],
+            dynamic_obj.outputs[:, i:i + 1],
+            dynamic_obj.U[:, i],
+            additional_args_pm=[
+                sub[i - 1] for sub in dynamic_obj.additional_args_pm_list
+            ],
+            additional_args_om=[
+                sub[i] for sub in dynamic_obj.additional_args_om_list
+            ],
+            innovation_bound_func=innovation_bound_func)
         if smooth_flag and i - lag_interval >= 0:
-            est_states[:, i-lag_interval:i - lag_interval+1] = X_smooth_fi[0]
-            cov_states[:, :, i-lag_interval] = P_smooth_fi[0]
-            if i == num_sol-1:
+            est_states[:,
+                       i - lag_interval:i - lag_interval + 1] = X_smooth_fi[0]
+            cov_states[:, :, i - lag_interval] = P_smooth_fi[0]
+            if i == num_sol - 1:
                 for k in range(1, len(X_smooth_fi)):
-                    est_states[:, i-lag_interval+k:i -
-                               lag_interval+k+1] = X_smooth_fi[k]
-                    cov_states[:, :, i-lag_interval+k] = P_smooth_fi[k]
+                    est_states[:, i - lag_interval + k:i - lag_interval + k +
+                               1] = X_smooth_fi[k]
+                    cov_states[:, :, i - lag_interval + k] = P_smooth_fi[k]
 
     return est_states, cov_states
 
 
-def plot_stuff(dynamic_obj, est_states, angle_states=[], encapsulated_gt=False, ref_params=None, data=None, data_state_mapping={}, data_indices=None, num_rows=[1, 2]):
+def plot_stuff(dynamic_obj,
+               est_states,
+               angle_states=[],
+               encapsulated_gt=False,
+               ref_params=None,
+               data=None,
+               data_state_mapping={},
+               data_indices=None,
+               num_rows=[1, 2]):
     """
     Useful function for plotting stuff. It plots 2 figures: 1 -> estimated parameters vs gt,
     2-> main dynamic states such as trajectory, heading, etc
@@ -523,7 +606,9 @@ def plot_stuff(dynamic_obj, est_states, angle_states=[], encapsulated_gt=False, 
     if ref_params is not None:
         if not isinstance(ref_params, Iterable):
             ref_params = [ref_params]
-        assert len(ref_params) == len(dynamic_obj.est_params), "Expected parameters to be estimated to be of the same length as the provided reference parameters but instead got {} and {} respectively".format(
+        assert len(ref_params) == len(
+            dynamic_obj.est_params
+        ), "Expected parameters to be estimated to be of the same length as the provided reference parameters but instead got {} and {} respectively".format(
             len(ref_params), len(dynamic_obj.est_params))
     # check if data_indices when provided is of the right size
     if data_indices is not None:
@@ -531,30 +616,35 @@ def plot_stuff(dynamic_obj, est_states, angle_states=[], encapsulated_gt=False, 
             data_indices) == 2, "Expect only two items in data indices list"
     # check num_rows when provided is of the right size
     if not isinstance(num_rows, Iterable):
-        num_rows = [num_rows]*2
-    assert len(num_rows) == 2, "Expect only two items in num rows for each figure"
+        num_rows = [num_rows] * 2
+    assert len(
+        num_rows) == 2, "Expect only two items in num rows for each figure"
 
     # first figure for the parameters
     num_est_params = len(dynamic_obj.est_params)
     num_main_states = dynamic_obj.num_states - num_est_params
     if num_est_params < num_rows[0]:
         num_rows[0] = num_est_params
-    num_col = int(math.ceil(num_est_params/float(num_rows[0])))
+    num_col = int(math.ceil(num_est_params / float(num_rows[0])))
     plt.figure(1)
     for i, j in enumerate(range(num_main_states, dynamic_obj.num_states)):
-        plt.subplot(num_rows[0], num_col, i+1)
+        plt.subplot(num_rows[0], num_col, i + 1)
 
         plt.plot(dynamic_obj.T, est_states[j, :], label='est')
         if encapsulated_gt:
             plt.plot(dynamic_obj.T,
-                     dynamic_obj.gt_states[j, :], label='gt', linestyle='--')
+                     dynamic_obj.gt_states[j, :],
+                     label='gt',
+                     linestyle='--')
         elif ref_params is not None:
             if isinstance(ref_params[i], Iterable):
-                assert len(ref_params[i]) == len(dynamic_obj.T), "Reference parameter size is inconsistent with time instances ({} vs {})".format(
+                assert len(ref_params[i]) == len(
+                    dynamic_obj.T
+                ), "Reference parameter size is inconsistent with time instances ({} vs {})".format(
                     len(ref_params[i]), len(dynamic_obj.T))
                 ref_param = ref_params[i]
             else:
-                ref_param = np.ones(dynamic_obj.T.shape)*ref_params[i]
+                ref_param = np.ones(dynamic_obj.T.shape) * ref_params[i]
 
             plt.plot(dynamic_obj.T, ref_param, label='ref', linestyle='--')
 
@@ -567,28 +657,41 @@ def plot_stuff(dynamic_obj, est_states, angle_states=[], encapsulated_gt=False, 
     plt.figure(2)
     start_ind = 1
     if 'x' in dynamic_obj.state_dict and 'y' in dynamic_obj.state_dict:
-        num_col = int(math.ceil((num_main_states-1)/num_rows[1]))
+        num_col = int(math.ceil((num_main_states - 1) / num_rows[1]))
 
         plt.subplot(num_rows[1], num_col, 1)
 
         plt.plot(est_states[dynamic_obj.state_dict['x'], :],
-                 est_states[dynamic_obj.state_dict['y'], :], label='est')
-        if dynamic_obj.state_dict['x'] in dynamic_obj.state_indices and dynamic_obj.state_dict['y'] in dynamic_obj.state_indices:
-            plt.plot(dynamic_obj.outputs[dynamic_obj.state_indices.index(dynamic_obj.state_dict['x']), :],
-                     dynamic_obj.outputs[dynamic_obj.state_indices.index(dynamic_obj.state_dict['y']), :], label='output')
+                 est_states[dynamic_obj.state_dict['y'], :],
+                 label='est')
+        if dynamic_obj.state_dict[
+                'x'] in dynamic_obj.state_indices and dynamic_obj.state_dict[
+                    'y'] in dynamic_obj.state_indices:
+            plt.plot(
+                dynamic_obj.outputs[dynamic_obj.state_indices.
+                                    index(dynamic_obj.state_dict['x']), :],
+                dynamic_obj.outputs[dynamic_obj.state_indices.
+                                    index(dynamic_obj.state_dict['y']), :],
+                label='output')
         if data is not None:
             if 'x' in data_state_mapping and 'y' in data_state_mapping:
-                if data_state_mapping['x'] in data and data_state_mapping['y'] in data:
+                if data_state_mapping['x'] in data and data_state_mapping[
+                        'y'] in data:
                     if data_indices is None:
                         temp_indices = [
-                            0, len(data[data_state_mapping['x']])-1]
+                            0, len(data[data_state_mapping['x']]) - 1
+                        ]
                     else:
                         temp_indices = data_indices
-                    plt.plot(data[data_state_mapping['x']][temp_indices[0]:temp_indices[1]+1],
-                             data[data_state_mapping['y']][temp_indices[0]:temp_indices[1]+1], label='data')
+                    plt.plot(data[data_state_mapping['x']]
+                             [temp_indices[0]:temp_indices[1] + 1],
+                             data[data_state_mapping['y']]
+                             [temp_indices[0]:temp_indices[1] + 1],
+                             label='data')
         if encapsulated_gt:
             plt.plot(dynamic_obj.gt_states[dynamic_obj.state_dict['x'], :],
-                     dynamic_obj.gt_states[dynamic_obj.state_dict['y'], :], label='gt')
+                     dynamic_obj.gt_states[dynamic_obj.state_dict['y'], :],
+                     label='gt')
 
         plt.grid(True, "both")
         plt.xlabel('X (m)')
@@ -597,51 +700,71 @@ def plot_stuff(dynamic_obj, est_states, angle_states=[], encapsulated_gt=False, 
 
         start_ind += 1
     else:
-        num_col = int(math.ceil(num_main_states/num_rows[1]))
+        num_col = int(math.ceil(num_main_states / num_rows[1]))
 
-    other_states_dict = {x: dynamic_obj.state_dict[x] for x in dynamic_obj.state_dict if x not in [
-        'x', 'y'] and x not in dynamic_obj.est_params}
+    other_states_dict = {
+        x: dynamic_obj.state_dict[x]
+        for x in dynamic_obj.state_dict
+        if x not in ['x', 'y'] and x not in dynamic_obj.est_params
+    }
     for i, key in enumerate(other_states_dict):
         state_ind = other_states_dict[key]
-        plt.subplot(num_rows[1], num_col, start_ind+i)
+        plt.subplot(num_rows[1], num_col, start_ind + i)
 
         if key in angle_states:
-            plt.plot(dynamic_obj.T, bind_npi_pi(
-                est_states[state_ind, :]), label='est')
+            plt.plot(dynamic_obj.T,
+                     bind_npi_pi(est_states[state_ind, :]),
+                     label='est')
         else:
             plt.plot(dynamic_obj.T, est_states[state_ind, :], label='est')
         if state_ind in dynamic_obj.state_indices:
             if key in angle_states:
-                plt.plot(dynamic_obj.T, bind_npi_pi(
-                    dynamic_obj.outputs[dynamic_obj.state_indices.index(state_ind), :]), label='output')
+                plt.plot(dynamic_obj.T,
+                         bind_npi_pi(dynamic_obj.outputs[
+                             dynamic_obj.state_indices.index(state_ind), :]),
+                         label='output')
             else:
-                plt.plot(dynamic_obj.T, dynamic_obj.outputs[dynamic_obj.state_indices.index(
-                    state_ind), :], label='output')
+                plt.plot(dynamic_obj.T,
+                         dynamic_obj.outputs[
+                             dynamic_obj.state_indices.index(state_ind), :],
+                         label='output')
         if data is not None:
             if key in data_state_mapping:
                 if data_state_mapping[key] in data:
                     if data_indices is None:
                         temp_indices = [
-                            0, len(data[data_state_mapping[key]])-1]
+                            0, len(data[data_state_mapping[key]]) - 1
+                        ]
                     else:
                         temp_indices = data_indices
 
-                    assert len(dynamic_obj.T) == temp_indices[1]-temp_indices[0]+1, "Expected number of time instances to be the same as data instances for key {} but instead got {} & {}".format(
-                        key, len(dynamic_obj.T), temp_indices[1]-temp_indices[0]+1)
+                    assert len(
+                        dynamic_obj.T
+                    ) == temp_indices[1] - temp_indices[
+                        0] + 1, "Expected number of time instances to be the same as data instances for key {} but instead got {} & {}".format(
+                            key, len(dynamic_obj.T),
+                            temp_indices[1] - temp_indices[0] + 1)
 
                     if key in angle_states:
-                        plt.plot(dynamic_obj.T, bind_npi_pi(
-                            data[data_state_mapping[key]][temp_indices[0]:temp_indices[1]+1]), label='data')
+                        plt.plot(dynamic_obj.T,
+                                 bind_npi_pi(data[data_state_mapping[key]]
+                                             [temp_indices[0]:temp_indices[1] +
+                                              1]),
+                                 label='data')
                     else:
-                        plt.plot(dynamic_obj.T, data[data_state_mapping[key]]
-                                 [temp_indices[0]:temp_indices[1]+1], label='data')
+                        plt.plot(dynamic_obj.T,
+                                 data[data_state_mapping[key]]
+                                 [temp_indices[0]:temp_indices[1] + 1],
+                                 label='data')
         if encapsulated_gt:
             if key in angle_states:
-                plt.plot(dynamic_obj.T, bind_npi_pi(
-                    dynamic_obj.gt_states[state_ind, :]), label='gt')
+                plt.plot(dynamic_obj.T,
+                         bind_npi_pi(dynamic_obj.gt_states[state_ind, :]),
+                         label='gt')
             else:
                 plt.plot(dynamic_obj.T,
-                         dynamic_obj.gt_states[state_ind, :], label='gt')
+                         dynamic_obj.gt_states[state_ind, :],
+                         label='gt')
 
         plt.grid(True, "both")
         plt.xlabel('Time (s)')

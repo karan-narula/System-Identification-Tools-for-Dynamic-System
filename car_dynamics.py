@@ -37,10 +37,10 @@ def cal_vxvy_from_coord(state, state_prev, dt, x_ind=0, y_ind=1, theta_ind=2):
     prev_ang = state_prev[theta_ind, :]
     R = np.array([[np.cos(prev_ang), np.sin(prev_ang)],
                   [-np.sin(prev_ang), np.cos(prev_ang)]])
-    xy_dot = (state[[x_ind, y_ind], :] - state_prev[[x_ind, y_ind], :])/dt
+    xy_dot = (state[[x_ind, y_ind], :] - state_prev[[x_ind, y_ind], :]) / dt
     vxy = np.zeros(xy_dot.shape)
     for i in range(xy_dot.shape[1]):
-        vxy[:, i:i+1] = np.matmul(R[:, :, i], xy_dot[:, i:i+1])
+        vxy[:, i:i + 1] = np.matmul(R[:, :, i], xy_dot[:, i:i + 1])
 
     return vxy
 
@@ -59,7 +59,12 @@ class AbstractDyn(object):
     """
     __metaclass__ = abc.ABCMeta
 
-    def __init__(self, param_dict, state_keys=[], state_dot_keys=[], additional_output_keys=[], use_torch_tensor=False):
+    def __init__(self,
+                 param_dict,
+                 state_keys=[],
+                 state_dot_keys=[],
+                 additional_output_keys=[],
+                 use_torch_tensor=False):
         # store the parameter dictionary for the vehicle dynamics
         self.param_dict = param_dict.copy()
 
@@ -81,7 +86,8 @@ class AbstractDyn(object):
         self.assert_tensor_compliance()
 
         # check if param dictionary is valid
-        assert self.check_param_dict(), "Parameter dictionary does not contain all requried keys"
+        assert self.check_param_dict(
+        ), "Parameter dictionary does not contain all requried keys"
 
         # store state its derivative indices for generating output
         self.state_indices = []
@@ -139,11 +145,25 @@ class AbstractDyn(object):
             # turn on the flag
             self.use_pre_alloc_tensors = True
             # default empty tensor
-            self.tensor_empty = torch.empty(0, device=tensor_device, dtype=dtype)
+            self.tensor_empty = torch.empty(0,
+                                            device=tensor_device,
+                                            dtype=dtype)
             # zero tensor to be augmented when performing partial dxdt
-            self.tensor_params_dxdt = torch.zeros((1, num_params), device=tensor_device, dtype=dtype)
+            self.tensor_params_dxdt = torch.zeros((1, num_params),
+                                                  device=tensor_device,
+                                                  dtype=dtype)
 
-    def sample_nlds(self, z0, U, T, Q=None, P0=None, R=None, Qu=None, store_variables=True, overwrite_keys=[], overwrite_vals=[]):
+    def sample_nlds(self,
+                    z0,
+                    U,
+                    T,
+                    Q=None,
+                    P0=None,
+                    R=None,
+                    Qu=None,
+                    store_variables=True,
+                    overwrite_keys=[],
+                    overwrite_vals=[]):
         """
         Retrieve ground truth, initial and output data (SNLDS: Stochastic non-linear dynamic system)
 
@@ -163,23 +183,27 @@ class AbstractDyn(object):
         # check sizes of received matrices
         num_sol = len(T)
         assert len(
-            z0) == self.num_states, "True initial condition is of incorrect size"
-        assert U.shape == (
-            self.num_in, num_sol), "Incorrect size of input matrix"
+            z0
+        ) == self.num_states, "True initial condition is of incorrect size"
+        assert U.shape == (self.num_in,
+                           num_sol), "Incorrect size of input matrix"
 
-        def process_model(x, u, noise, input_noise, dt, param_dict): return self.forward_prop(
-            x, self.dxdt(x, u + input_noise, param_dict), dt) + noise
+        def process_model(x, u, noise, input_noise, dt, param_dict):
+            return self.forward_prop(
+                x, self.dxdt(x, u + input_noise, param_dict), dt) + noise
 
-        def observation_model(
-            x, u, noise, param_dict): return self.output_model(x, u, param_dict) + noise
+        def observation_model(x, u, noise, param_dict):
+            return self.output_model(x, u, param_dict) + noise
 
         # check size of array of parameter dictionary
         for key in self.param_dict:
             if not isinstance(self.param_dict[key], Iterable):
-                self.param_dict[key] = [self.param_dict[key]]*num_sol
+                self.param_dict[key] = [self.param_dict[key]] * num_sol
             else:
                 assert len(
-                    self.param_dict[key]) == num_sol, "Parameter {} should have the length of nt".format(key)
+                    self.param_dict[key]
+                ) == num_sol, "Parameter {} should have the length of nt".format(
+                    key)
 
         # convert param dictionary to additional input for process model
         self.param_list = []
@@ -199,17 +223,32 @@ class AbstractDyn(object):
         # get ground truth data, initial and output data
         dts = np.diff(T)
         dts = np.append(dts, dts[-1])
-        gt_states, initial_cond, outputs, additional_args_pm_list, additional_args_om_list = sample_nlds(z0, U, num_sol, process_model, observation_model, self.num_out, Q=Q, P0=P0, R=R, Qu=Qu, additional_args_pm=[
-                                                                                                         dts, self.param_list], additional_args_om=[self.param_list], overwrite_inds=overwrite_inds, overwrite_vals=overwrite_vals)
+        gt_states, initial_cond, outputs, additional_args_pm_list, additional_args_om_list = sample_nlds(
+            z0,
+            U,
+            num_sol,
+            process_model,
+            observation_model,
+            self.num_out,
+            Q=Q,
+            P0=P0,
+            R=R,
+            Qu=Qu,
+            additional_args_pm=[dts, self.param_list],
+            additional_args_om=[self.param_list],
+            overwrite_inds=overwrite_inds,
+            overwrite_vals=overwrite_vals)
 
         # separately, get the derivative of ground truth
         gt_states_dot = np.zeros(gt_states.shape)
         for i in range(1, num_sol):
-            gt_states_dot[:, i -
-                          1] = self.dxdt(gt_states[:, i-1], U[:, i-1], self.param_list[i-1])
+            gt_states_dot[:, i - 1] = self.dxdt(gt_states[:, i - 1], U[:,
+                                                                       i - 1],
+                                                self.param_list[i - 1])
 
-        gt_states_dot[:, num_sol -
-                      1] = self.dxdt(gt_states[:, num_sol-1], U[:, num_sol-1], self.param_list[num_sol-1])
+        gt_states_dot[:, num_sol - 1] = self.dxdt(gt_states[:, num_sol - 1],
+                                                  U[:, num_sol - 1],
+                                                  self.param_list[num_sol - 1])
 
         # store varibles to avoid parsing things around?
         if store_variables:
@@ -262,7 +301,7 @@ class AbstractDyn(object):
             state (numpy array [n x 1 or 1 x n]): next time-step state vector
 
         """
-        return state + dt*state_dot
+        return state + dt * state_dot
 
     def additional_output_model(self, state, u, param_dict):
         """
@@ -308,9 +347,14 @@ class AbstractDyn(object):
                     state_dot_out = self.tensor_empty
                 else:
                     state_dot_out = torch.empty(0).to(state.device)
-            return torch.cat((state[self.state_indices], state_dot_out, self.additional_output_model(state, u, param_dict)))
+            return torch.cat(
+                (state[self.state_indices], state_dot_out,
+                 self.additional_output_model(state, u, param_dict)))
         else:
-            return np.concatenate((state[self.state_indices], self.dxdt(state, u, param_dict)[0, self.state_dot_indices], self.additional_output_model(state, u, param_dict)))
+            return np.concatenate(
+                (state[self.state_indices],
+                 self.dxdt(state, u, param_dict)[0, self.state_dot_indices],
+                 self.additional_output_model(state, u, param_dict)))
 
     def cal_vxvy_from_coord(self, output=True):
         """
@@ -331,9 +375,12 @@ class AbstractDyn(object):
 
         if output:
             # check if x,y and theta are part of the output
-            assert self.state_dict['x'] in self.state_indices, "No output for state x available"
-            assert self.state_dict['y'] in self.state_indices, "No output for state y available"
-            assert self.state_dict['theta'] in self.state_indices, "No output for state theta available"
+            assert self.state_dict[
+                'x'] in self.state_indices, "No output for state x available"
+            assert self.state_dict[
+                'y'] in self.state_indices, "No output for state y available"
+            assert self.state_dict[
+                'theta'] in self.state_indices, "No output for state theta available"
 
             state = self.outputs[:, 1:]
             state_prev = self.outputs[:, :-1]
@@ -341,7 +388,12 @@ class AbstractDyn(object):
             state = self.gt_states[:, 1:]
             state_prev = self.gt_states[:, :-1]
 
-        return cal_vxvy_from_coord(state, state_prev, np.diff(self.T), x_ind=self.state_dict['x'], y_ind=self.state_dict['y'], theta_ind=self.state_dict['theta'])
+        return cal_vxvy_from_coord(state,
+                                   state_prev,
+                                   np.diff(self.T),
+                                   x_ind=self.state_dict['x'],
+                                   y_ind=self.state_dict['y'],
+                                   theta_ind=self.state_dict['theta'])
 
 
 class FrontSteered(AbstractDyn):
@@ -352,7 +404,7 @@ class FrontSteered(AbstractDyn):
     (iii) vehicle operates in the linear region of the tire-force curve with negligible inclination and bang angles
     (iv) left and right wheels on each axle have the same stiffness
     (v) dominant forces are the tire-road contact forces. influences due to wind and air resistance are ignored.
-    
+
     model from: "Tire-Stiffness and Vehicle-State Estimation Based on Noise-Adaptive Particle Filtering"
     inputs = [steering_angle, wf, wr]; wf -> front wheel rotation rate, wr -> rear wheel rotation rate
     states = [x, y, theta, vx, vy, omega]
@@ -366,15 +418,31 @@ class FrontSteered(AbstractDyn):
 
     """
     # state dictionary for this model
-    global_state_dict = {'x': 0, 'y': 1,
-                         'theta': 2, 'vx': 3, 'vy': 4, 'omega': 5}
+    global_state_dict = {
+        'x': 0,
+        'y': 1,
+        'theta': 2,
+        'vx': 3,
+        'vy': 4,
+        'omega': 5
+    }
     # expected keys/parameters of this model
-    global_expected_keys = ["mass", "lr", "lf",
-                            "e_wr", "cxf", "cxr", "cyf", "cyr", "iz"]
+    global_expected_keys = [
+        "mass", "lr", "lf", "e_wr", "cxf", "cxr", "cyf", "cyr", "iz"
+    ]
 
-    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[], use_torch_tensor=False):
-        super(FrontSteered, self).__init__(param_dict, state_keys=state_keys, state_dot_keys=state_dot_keys,
-                                           additional_output_keys=additional_output_keys, use_torch_tensor=use_torch_tensor)
+    def __init__(self,
+                 param_dict,
+                 state_keys,
+                 state_dot_keys=[],
+                 additional_output_keys=[],
+                 use_torch_tensor=False):
+        super(FrontSteered,
+              self).__init__(param_dict,
+                             state_keys=state_keys,
+                             state_dot_keys=state_dot_keys,
+                             additional_output_keys=additional_output_keys,
+                             use_torch_tensor=use_torch_tensor)
 
         # dimensionality of input
         self.num_in = 3
@@ -405,40 +473,45 @@ class FrontSteered(AbstractDyn):
 
         # calculate lateral tire forces
         if vx != 0.0:
-            slip_ang_f = steering_angle - (vy + param_dict['lf']*omega)/vx
-            slip_ang_r = (param_dict['lr']*omega - vy)/vx
+            slip_ang_f = steering_angle - (vy + param_dict['lf'] * omega) / vx
+            slip_ang_r = (param_dict['lr'] * omega - vy) / vx
         else:
             slip_ang_f = 0.0
             slip_ang_r = 0.0
-        fy_f = param_dict['cyf']*slip_ang_f
-        fy_r = param_dict['cyr']*slip_ang_r
+        fy_f = param_dict['cyf'] * slip_ang_f
+        fy_r = param_dict['cyr'] * slip_ang_r
 
         # calculate longitudinal force
         wheel_slip_f = (vx - param_dict['e_wr']*wf) / \
             max(vx, param_dict['e_wr']*wf)
         wheel_slip_r = (vx - param_dict['e_wr']*wr) / \
             max(vx, param_dict['e_wr']*wr)
-        fx_f = param_dict['cxf']*wheel_slip_f
-        fx_r = param_dict['cxr']*wheel_slip_r
+        fx_f = param_dict['cxf'] * wheel_slip_f
+        fx_r = param_dict['cxr'] * wheel_slip_r
 
         # calculate lateral and longitudinal acceleration
-        vx_dot = (fx_f*math.cos(steering_angle) + fx_r + fy_f *
-                  math.sin(steering_angle) + param_dict['mass']*vy*omega)/param_dict['mass']
-        ax_inertial = vx_dot - vy*omega
-        vy_dot = (fy_f*math.cos(steering_angle) + fy_r + fx_f *
-                  math.sin(steering_angle) - param_dict['mass']*vx*omega)/param_dict['mass']
-        ay_inertial = vy_dot + vx*omega
+        vx_dot = (fx_f * math.cos(steering_angle) + fx_r +
+                  fy_f * math.sin(steering_angle) +
+                  param_dict['mass'] * vy * omega) / param_dict['mass']
+        ax_inertial = vx_dot - vy * omega
+        vy_dot = (fy_f * math.cos(steering_angle) + fy_r +
+                  fx_f * math.sin(steering_angle) -
+                  param_dict['mass'] * vx * omega) / param_dict['mass']
+        ay_inertial = vy_dot + vx * omega
 
         # calculate angular acceleration
-        omega_dot = (param_dict['lf']*(fy_f*math.cos(steering_angle) + fx_f *
-                                       math.sin(steering_angle)) - param_dict['lr']*fy_r)/param_dict['iz']
+        omega_dot = (
+            param_dict['lf'] *
+            (fy_f * math.cos(steering_angle) + fx_f * math.sin(steering_angle))
+            - param_dict['lr'] * fy_r) / param_dict['iz']
 
         # kinematic model based on derived dynamic quantities
-        x_dot = vx*math.cos(heading) - vy*math.sin(heading)
-        y_dot = vx*math.sin(heading) + vy*math.cos(heading)
+        x_dot = vx * math.cos(heading) - vy * math.sin(heading)
+        y_dot = vx * math.sin(heading) + vy * math.cos(heading)
         heading_dot = omega
 
-        return np.array([[x_dot, y_dot, heading_dot, vx_dot, vy_dot, omega_dot]])
+        return np.array(
+            [[x_dot, y_dot, heading_dot, vx_dot, vy_dot, omega_dot]])
 
     def additional_output_model(self, state, u, param_dict):
         """
@@ -465,26 +538,26 @@ class FrontSteered(AbstractDyn):
 
         # calculate lateral tire forces
         if vx != 0.0:
-            slip_ang_f = steering_angle - (vy + param_dict['lf']*omega)/vx
-            slip_ang_r = (param_dict['lr']*omega - vy)/vx
+            slip_ang_f = steering_angle - (vy + param_dict['lf'] * omega) / vx
+            slip_ang_r = (param_dict['lr'] * omega - vy) / vx
         else:
             slip_ang_f = 0.0
             slip_ang_r = 0.0
-        fy_f = param_dict['cyf']*slip_ang_f
-        fy_r = param_dict['cyr']*slip_ang_r
+        fy_f = param_dict['cyf'] * slip_ang_f
+        fy_r = param_dict['cyr'] * slip_ang_r
 
         # calculate longitudinal force
         wheel_slip_f = (vx - param_dict['e_wr']*wf) / \
             max(vx, param_dict['e_wr']*wf)
         wheel_slip_r = (vx - param_dict['e_wr']*wr) / \
             max(vx, param_dict['e_wr']*wr)
-        fx_f = param_dict['cxf']*wheel_slip_f
-        fx_r = param_dict['cxr']*wheel_slip_r
+        fx_f = param_dict['cxf'] * wheel_slip_f
+        fx_r = param_dict['cxr'] * wheel_slip_r
 
-        ax_inertial = (fx_f*math.cos(steering_angle) + fx_r + fy_f *
-                       math.sin(steering_angle))/param_dict['mass']
-        ay_inertial = (fy_f*math.cos(steering_angle) + fy_r + fx_f *
-                       math.sin(steering_angle))/param_dict['mass']
+        ax_inertial = (fx_f * math.cos(steering_angle) + fx_r +
+                       fy_f * math.sin(steering_angle)) / param_dict['mass']
+        ay_inertial = (fy_f * math.cos(steering_angle) + fy_r +
+                       fx_f * math.sin(steering_angle)) / param_dict['mass']
 
         # create output array to return
         output = np.array([])
@@ -514,12 +587,22 @@ class RoverDyn(AbstractDyn):
     # state dictionary for this model
     global_state_dict = {'x': 0, 'y': 1, 'theta': 2, 'vx': 3}
     # expected keys/parameters of this model
-    global_expected_keys = ["c1", "c2", "c3",
-                            "c4", "c5", "c6", "c7", "c8", "c9"]
+    global_expected_keys = [
+        "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"
+    ]
 
-    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[], use_torch_tensor=False):
-        super(RoverDyn, self).__init__(param_dict, state_keys=state_keys, state_dot_keys=state_dot_keys,
-                                       additional_output_keys=additional_output_keys, use_torch_tensor=use_torch_tensor)
+    def __init__(self,
+                 param_dict,
+                 state_keys,
+                 state_dot_keys=[],
+                 additional_output_keys=[],
+                 use_torch_tensor=False):
+        super(RoverDyn,
+              self).__init__(param_dict,
+                             state_keys=state_keys,
+                             state_dot_keys=state_dot_keys,
+                             additional_output_keys=additional_output_keys,
+                             use_torch_tensor=use_torch_tensor)
 
         # specify expected dimensionality of input
         self.num_in = 2
@@ -545,13 +628,14 @@ class RoverDyn(AbstractDyn):
         theta = state[self.state_dict['theta']]
         vx = state[self.state_dict['vx']]
 
-        ang_rate = math.tan(param_dict['c1']*steering_angle + param_dict['c2'])*vx/(
-            param_dict['c3'] + param_dict['c4']*vx**2)
-        vy = ang_rate*(param_dict['c8'] + param_dict['c9']*vx**2)
+        ang_rate = math.tan(param_dict['c1'] * steering_angle +
+                            param_dict['c2']) * vx / (param_dict['c3'] +
+                                                      param_dict['c4'] * vx**2)
+        vy = ang_rate * (param_dict['c8'] + param_dict['c9'] * vx**2)
 
         # calculate the derivatives
-        x_dot = vx*math.cos(theta) - vy*math.sin(theta)
-        y_dot = vx*math.sin(theta) + vy*math.cos(theta)
+        x_dot = vx * math.cos(theta) - vy * math.sin(theta)
+        y_dot = vx * math.sin(theta) + vy * math.cos(theta)
         heading_dot = ang_rate
         vx_dot = param_dict['c5'] + param_dict['c6'] * \
             (vx - vx_cmd) + param_dict['c7']*(vx - vx_cmd)**2
@@ -577,9 +661,10 @@ class RoverDyn(AbstractDyn):
         # get the states
         vx = state[self.state_dict['vx']]
 
-        ang_rate = math.tan(param_dict['c1']*steering_angle + param_dict['c2'])*vx/(
-            param_dict['c3'] + param_dict['c4']*vx**2)
-        vy = ang_rate*(param_dict['c8'] + param_dict['c9']*vx**2)
+        ang_rate = math.tan(param_dict['c1'] * steering_angle +
+                            param_dict['c2']) * vx / (param_dict['c3'] +
+                                                      param_dict['c4'] * vx**2)
+        vy = ang_rate * (param_dict['c8'] + param_dict['c9'] * vx**2)
 
         # create output array
         output = np.array([])
@@ -589,7 +674,15 @@ class RoverDyn(AbstractDyn):
         return output
 
 
-def partial_init(obj, class_type, est_params, param_dict, state_keys, simulate_gt, state_dot_keys=[], additional_output_keys=[], use_torch_tensor=False):
+def partial_init(obj,
+                 class_type,
+                 est_params,
+                 param_dict,
+                 state_keys,
+                 simulate_gt,
+                 state_dot_keys=[],
+                 additional_output_keys=[],
+                 use_torch_tensor=False):
     """
     Function to help initialise an Estimate class deriving from the dynamic class.
 
@@ -609,8 +702,12 @@ def partial_init(obj, class_type, est_params, param_dict, state_keys, simulate_g
     obj.simulate_gt = simulate_gt
 
     if obj.simulate_gt:
-        super(class_type, obj).__init__(param_dict, state_keys, state_dot_keys=state_dot_keys,
-                                        additional_output_keys=additional_output_keys, use_torch_tensor=False)
+        super(class_type,
+              obj).__init__(param_dict,
+                            state_keys,
+                            state_dot_keys=state_dot_keys,
+                            additional_output_keys=additional_output_keys,
+                            use_torch_tensor=False)
         obj.later_use_torch_tensor = use_torch_tensor
     else:
         # remove parameters to be estimated from dictionary
@@ -619,8 +716,12 @@ def partial_init(obj, class_type, est_params, param_dict, state_keys, simulate_g
             if est_param in pruned_param_dict:
                 del pruned_param_dict[est_param]
 
-        super(class_type, obj).__init__(pruned_param_dict, state_keys, state_dot_keys=state_dot_keys,
-                                        additional_output_keys=additional_output_keys, use_torch_tensor=use_torch_tensor)
+        super(class_type,
+              obj).__init__(pruned_param_dict,
+                            state_keys,
+                            state_dot_keys=state_dot_keys,
+                            additional_output_keys=additional_output_keys,
+                            use_torch_tensor=use_torch_tensor)
 
         # check if est_params are in expected keys
         for est_param in est_params:
@@ -662,7 +763,8 @@ def re_initialise(obj):
                 del obj.param_dict[est_param]
 
         # check if param dictionary is valid
-        assert obj.check_param_dict(), "Parameter dictionary does not contain all requried keys"
+        assert obj.check_param_dict(
+        ), "Parameter dictionary does not contain all requried keys"
 
         # retrieve initially proved direction on usage of torch tensor
         obj.use_torch_tensor = obj.later_use_torch_tensor
@@ -688,7 +790,7 @@ def partial_dxdt(obj, class_type, state, u, param_dict):
     # put the parameters into the dictionary
     if not obj.simulate_gt:
         for i, est_param in enumerate(obj.est_params):
-            param_dict[est_param] = state[obj.num_dyn_states+i]
+            param_dict[est_param] = state[obj.num_dyn_states + i]
 
     state_dot = super(class_type, obj).dxdt(state, u, param_dict)
     if obj.use_torch_tensor:
@@ -697,10 +799,13 @@ def partial_dxdt(obj, class_type, state, u, param_dict):
         if obj.use_pre_alloc_tensors:
             params_dxdt = obj.tensor_params_dxdt
         else:
-            params_dxdt = torch.zeros((1, len(obj.est_params)), device=state_dot.device, dtype=state_dot.dtype)
+            params_dxdt = torch.zeros((1, len(obj.est_params)),
+                                      device=state_dot.device,
+                                      dtype=state_dot.dtype)
         return torch.cat((state_dot, params_dxdt), dim=1)
     else:
-        return np.concatenate((state_dot, np.zeros((1, len(obj.est_params)))), axis=1)
+        return np.concatenate((state_dot, np.zeros((1, len(obj.est_params)))),
+                              axis=1)
 
 
 class RoverPartialDynEst(RoverDyn):
@@ -720,10 +825,23 @@ class RoverPartialDynEst(RoverDyn):
         use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False
 
     """
-
-    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False, additional_output_keys=[], use_torch_tensor=False):
-        partial_init(self, RoverPartialDynEst, est_params, param_dict, state_keys, simulate_gt,
-                     state_dot_keys, additional_output_keys, use_torch_tensor=use_torch_tensor)
+    def __init__(self,
+                 param_dict,
+                 est_params,
+                 state_keys,
+                 state_dot_keys=[],
+                 simulate_gt=False,
+                 additional_output_keys=[],
+                 use_torch_tensor=False):
+        partial_init(self,
+                     RoverPartialDynEst,
+                     est_params,
+                     param_dict,
+                     state_keys,
+                     simulate_gt,
+                     state_dot_keys,
+                     additional_output_keys,
+                     use_torch_tensor=use_torch_tensor)
 
     def re_initialise(self):
         """
@@ -737,7 +855,7 @@ class RoverPartialDynEst(RoverDyn):
         estimated parameters are zero, i.e. assuming they are constant and not drifting over time.
 
         Args:
-            state (numpy array [4+len(self.est_params) x 1]): current state of the system consisting of x, y, theta, vx 
+            state (numpy array [4+len(self.est_params) x 1]): current state of the system consisting of x, y, theta, vx
                 and estimated parameters
             u (numpy array [2 x 1]): current input consisting of steering angle and commanded velocity
             param_dict (dict): dictionary of current non-estimated parameters needed for defining the dynamics
@@ -787,13 +905,24 @@ class OneWheelFriction(AbstractDyn):
     # state dictionary for this model
     global_state_dict = {'v': 0, 'w': 1, 'z': 2}
     # expected keys/parameters of this model
-    global_expected_keys = ["sigma_0", "sigma_1", "sigma_2", "sigma_w",
-                            "L", "mu_c", "mu_s", "vs", "theta", "r", "m", "J", "k", "Fn"]
+    global_expected_keys = [
+        "sigma_0", "sigma_1", "sigma_2", "sigma_w", "L", "mu_c", "mu_s", "vs",
+        "theta", "r", "m", "J", "k", "Fn"
+    ]
     tensor_compliance = True
 
-    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[], use_torch_tensor=False):
-        super(OneWheelFriction, self).__init__(param_dict, state_keys=state_keys, state_dot_keys=state_dot_keys,
-                                               additional_output_keys=additional_output_keys, use_torch_tensor=use_torch_tensor)
+    def __init__(self,
+                 param_dict,
+                 state_keys,
+                 state_dot_keys=[],
+                 additional_output_keys=[],
+                 use_torch_tensor=False):
+        super(OneWheelFriction,
+              self).__init__(param_dict,
+                             state_keys=state_keys,
+                             state_dot_keys=state_dot_keys,
+                             additional_output_keys=additional_output_keys,
+                             use_torch_tensor=use_torch_tensor)
         # specify expected dimensionality of input
         self.num_in = 1
 
@@ -840,20 +969,23 @@ class OneWheelFriction(AbstractDyn):
         # define function
         def gvr(vr):
             if self.use_torch_tensor:
-                return mu_c + (mu_s - mu_c)*torch.exp(-torch.sqrt(torch.abs(vr/vs)))
+                return mu_c + (
+                    mu_s - mu_c) * torch.exp(-torch.sqrt(torch.abs(vr / vs)))
             else:
-                return mu_c + (mu_s - mu_c)*math.exp(-math.sqrt(math.fabs(vr/vs)))
+                return mu_c + (mu_s -
+                               mu_c) * math.exp(-math.sqrt(math.fabs(vr / vs)))
 
         # calculate the state derivatives
-        vr = r*w - v
+        vr = r * w - v
         if self.use_torch_tensor:
-            zdot = vr - z*(theta*sigma_0*torch.abs(vr) /
-                           gvr(vr) + k*r*torch.abs(w)/L)
+            zdot = vr - z * (theta * sigma_0 * torch.abs(vr) / gvr(vr) +
+                             k * r * torch.abs(w) / L)
         else:
-            zdot = vr - z*(theta*sigma_0*math.fabs(vr) /
-                           gvr(vr) + k*r*math.fabs(w)/L)
-        vdot = Fn/m*(sigma_0*z + sigma_1*zdot + sigma_2*vr)
-        wdot = (-r*Fn*(sigma_0*z + sigma_1*zdot) - sigma_w*w + ur)/J
+            zdot = vr - z * (theta * sigma_0 * math.fabs(vr) / gvr(vr) +
+                             k * r * math.fabs(w) / L)
+        vdot = Fn / m * (sigma_0 * z + sigma_1 * zdot + sigma_2 * vr)
+        wdot = (-r * Fn *
+                (sigma_0 * z + sigma_1 * zdot) - sigma_w * w + ur) / J
 
         if self.use_torch_tensor:
             return torch.stack([vdot, wdot, zdot]).unsqueeze(0)
@@ -878,10 +1010,23 @@ class OneWheelFrictionEst(OneWheelFriction):
         use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False
 
     """
-
-    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False, additional_output_keys=[], use_torch_tensor=False):
-        partial_init(self, OneWheelFrictionEst, est_params, param_dict, state_keys, simulate_gt,
-                     state_dot_keys, additional_output_keys, use_torch_tensor=use_torch_tensor)
+    def __init__(self,
+                 param_dict,
+                 est_params,
+                 state_keys,
+                 state_dot_keys=[],
+                 simulate_gt=False,
+                 additional_output_keys=[],
+                 use_torch_tensor=False):
+        partial_init(self,
+                     OneWheelFrictionEst,
+                     est_params,
+                     param_dict,
+                     state_keys,
+                     simulate_gt,
+                     state_dot_keys,
+                     additional_output_keys,
+                     use_torch_tensor=use_torch_tensor)
 
     def re_initialise(self):
         """
@@ -953,12 +1098,22 @@ class FrontDriveFrontSteer(AbstractDyn):
     # state dictionary for this model
     global_state_dict = {'x': 0, 'y': 1, 'theta': 2, 'vx': 3, 'vy': 4, 'w': 5}
     # expected keys/parameters of this model
-    global_expected_keys = ["fx", "cf", "cr",
-                            "lf", "lr", "m", "iz", "rc", "fr", "g"]
+    global_expected_keys = [
+        "fx", "cf", "cr", "lf", "lr", "m", "iz", "rc", "fr", "g"
+    ]
 
-    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[], use_torch_tensor=False):
-        super(FrontDriveFrontSteer, self).__init__(param_dict, state_keys=state_keys, state_dot_keys=state_dot_keys,
-                                                   additional_output_keys=additional_output_keys, use_torch_tensor=use_torch_tensor)
+    def __init__(self,
+                 param_dict,
+                 state_keys,
+                 state_dot_keys=[],
+                 additional_output_keys=[],
+                 use_torch_tensor=False):
+        super(FrontDriveFrontSteer,
+              self).__init__(param_dict,
+                             state_keys=state_keys,
+                             state_dot_keys=state_dot_keys,
+                             additional_output_keys=additional_output_keys,
+                             use_torch_tensor=use_torch_tensor)
 
         # specify expected dimensionality of input
         self.num_in = 2
@@ -1002,22 +1157,25 @@ class FrontDriveFrontSteer(AbstractDyn):
         if np.isclose(vy, 0.0, atol=1e-6) and np.isclose(vx, 0.0, atol=1e-6):
             vy_by_vx = 0.0
         else:
-            vy_by_vx = vy/vx
+            vy_by_vx = vy / vx
         if np.isclose(w, 0.0, atol=1e-6) and np.isclose(vx, 0.0, atol=1e-6):
             w_by_vx = 0.0
         else:
-            w_by_vx = w/vx
+            w_by_vx = w / vx
 
         # calculate the derivatives
-        x_dot = vx*math.cos(theta) - vy*math.sin(theta)
-        y_dot = vy*math.cos(theta) + vx*math.sin(theta)
+        x_dot = vx * math.cos(theta) - vy * math.sin(theta)
+        y_dot = vy * math.cos(theta) + vx * math.sin(theta)
         theta_dot = w
-        vx_dot = (fx*a_req + cf*(-steering_angle**2 + steering_angle *
-                                 vy_by_vx) + lf*cf*steering_angle*w_by_vx - 0.5*rc*vx**2 - fr*m*g + m*vy*w)/m
-        vy_dot = (-(cf + cr)*vy_by_vx + (lr*cr - lf*cf) *
-                  w_by_vx + cf*steering_angle + m*vx*w)/m
-        w_dot = ((lr*cr - lf*cf)*vy_by_vx - (cf*lf**2 + cr*lr**2)
-                 * w_by_vx + lf*cf*steering_angle)/iz
+        vx_dot = (fx * a_req + cf *
+                  (-steering_angle**2 + steering_angle * vy_by_vx) +
+                  lf * cf * steering_angle * w_by_vx - 0.5 * rc * vx**2 -
+                  fr * m * g + m * vy * w) / m
+        vy_dot = (-(cf + cr) * vy_by_vx + (lr * cr - lf * cf) * w_by_vx +
+                  cf * steering_angle + m * vx * w) / m
+        w_dot = ((lr * cr - lf * cf) * vy_by_vx -
+                 (cf * lf**2 + cr * lr**2) * w_by_vx +
+                 lf * cf * steering_angle) / iz
 
         return np.array([[x_dot, y_dot, theta_dot, vx_dot, vy_dot, w_dot]])
 
@@ -1039,10 +1197,23 @@ class FrontDriveFrontSteerEst(FrontDriveFrontSteer):
         use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False
 
     """
-
-    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False, additional_output_keys=[], use_torch_tensor=False):
-        partial_init(self, FrontDriveFrontSteerEst, est_params, param_dict, state_keys,
-                     simulate_gt, state_dot_keys, additional_output_keys, use_torch_tensor=use_torch_tensor)
+    def __init__(self,
+                 param_dict,
+                 est_params,
+                 state_keys,
+                 state_dot_keys=[],
+                 simulate_gt=False,
+                 additional_output_keys=[],
+                 use_torch_tensor=False):
+        partial_init(self,
+                     FrontDriveFrontSteerEst,
+                     est_params,
+                     param_dict,
+                     state_keys,
+                     simulate_gt,
+                     state_dot_keys,
+                     additional_output_keys,
+                     use_torch_tensor=use_torch_tensor)
 
     def re_initialise(self):
         """
@@ -1065,7 +1236,8 @@ class FrontDriveFrontSteerEst(FrontDriveFrontSteer):
             state_dot (numpy array [6+len(self.est_params) x 1]): derivative of the states
 
         """
-        return partial_dxdt(self, FrontDriveFrontSteerEst, state, u, param_dict)
+        return partial_dxdt(self, FrontDriveFrontSteerEst, state, u,
+                            param_dict)
 
 
 class RearDriveFrontSteer(AbstractDyn):
@@ -1109,12 +1281,23 @@ class RearDriveFrontSteer(AbstractDyn):
     # state dictionary for this model
     global_state_dict = {'x': 0, 'y': 1, 'theta': 2, 'vx': 3, 'vy': 4, 'w': 5}
     # expected keys/parameters of this model
-    global_expected_keys = ["m", "iz", "lf", "lr", "ref", "rer",
-                            "fr", "g", "sc_f", "sc_r", "sl_f", "sl_r", "af", "rho", "cd"]
+    global_expected_keys = [
+        "m", "iz", "lf", "lr", "ref", "rer", "fr", "g", "sc_f", "sc_r", "sl_f",
+        "sl_r", "af", "rho", "cd"
+    ]
 
-    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[], use_torch_tensor=False):
-        super(RearDriveFrontSteer, self).__init__(param_dict, state_keys=state_keys, state_dot_keys=state_dot_keys,
-                                                  additional_output_keys=additional_output_keys, use_torch_tensor=use_torch_tensor)
+    def __init__(self,
+                 param_dict,
+                 state_keys,
+                 state_dot_keys=[],
+                 additional_output_keys=[],
+                 use_torch_tensor=False):
+        super(RearDriveFrontSteer,
+              self).__init__(param_dict,
+                             state_keys=state_keys,
+                             state_dot_keys=state_dot_keys,
+                             additional_output_keys=additional_output_keys,
+                             use_torch_tensor=use_torch_tensor)
         # specify expected dimensionality of input
         self.num_in = 3
 
@@ -1160,74 +1343,74 @@ class RearDriveFrontSteer(AbstractDyn):
         w = state[self.state_dict['w']]
 
         # compute aero dynamic force
-        f_aero = 0.5*rho*cd*af*(vx**2)
+        f_aero = 0.5 * rho * cd * af * (vx**2)
 
         # calculate longitudinal slip ratio
-        sigma_xf = ref*wf - vx
+        sigma_xf = ref * wf - vx
         if sigma_xf < 0.0:
-           # braking phase
-           if vx != 0.0:
-               sigma_xf /= vx
-           else:
-               sigma_xf = 0.0
+            # braking phase
+            if vx != 0.0:
+                sigma_xf /= vx
+            else:
+                sigma_xf = 0.0
         else:
             # acceleration phase
             if wf != 0.0:
-                sigma_xf /= (ref*wf)
+                sigma_xf /= (ref * wf)
             else:
                 sigma_xf = 0.0
 
-        sigma_xr = rer*wr - vx
+        sigma_xr = rer * wr - vx
         if sigma_xr < 0.0:
-           # braking phase
-           if vx != 0.0:
-               sigma_xr /= vx
-           else:
-               sigma_xr = 0.0
+            # braking phase
+            if vx != 0.0:
+                sigma_xr /= vx
+            else:
+                sigma_xr = 0.0
         else:
             # acceleration phase
             if wr != 0.0:
-                sigma_xr /= (rer*wr)
+                sigma_xr /= (rer * wr)
             else:
                 sigma_xr = 0.0
 
         # calculate logitudinal tire forces
-        fxf = sl_f*sigma_xf
-        fxr = sl_r*sigma_xr
+        fxf = sl_f * sigma_xf
+        fxr = sl_r * sigma_xr
 
         # calculate rolling resistance
-        rx = fr*m*g
+        rx = fr * m * g
 
         # calculate slip angle
         if vx == 0.0:
-            if vy + lf*w == 0.0:
+            if vy + lf * w == 0.0:
                 theta_vf = 0.0
             else:
-                theta_vf = 0.5*math.pi
-            if vy - lr*w == 0.0:
+                theta_vf = 0.5 * math.pi
+            if vy - lr * w == 0.0:
                 theta_vr = 0.0
             else:
-                theta_vr = 0.5*math.pi
+                theta_vr = 0.5 * math.pi
         else:
-            theta_vf = (vy + lf*w)/vx
-            theta_vr = (vy - lr*w)/vx
+            theta_vf = (vy + lf * w) / vx
+            theta_vr = (vy - lr * w) / vx
         alpha_f = steering_angle - theta_vf
         alpha_r = -theta_vr
 
         # calculate lateral tire force
-        fyf = sc_f*alpha_f
-        fyr = sc_r*alpha_r
+        fyf = sc_f * alpha_f
+        fyr = sc_r * alpha_r
 
         # calculate the state derivatives
-        x_dot = vx*math.cos(theta) - vy*math.sin(theta)
-        y_dot = vy*math.cos(theta) + vx*math.sin(theta)
+        x_dot = vx * math.cos(theta) - vy * math.sin(theta)
+        y_dot = vy * math.cos(theta) + vx * math.sin(theta)
         theta_dot = w
-        vx_dot = (fxr + fxf*math.cos(steering_angle) - fyf *
-                  math.sin(steering_angle) - rx - f_aero + m*vy*w)/m
-        vy_dot = (fyr + fyf*math.cos(steering_angle) +
-                  fxf*math.sin(steering_angle) - m*vx*w)/m
-        w_dot = (lf*fxf*math.sin(steering_angle) + lf *
-                 fyf*math.cos(steering_angle) - lr*fyr)/iz
+        vx_dot = (fxr + fxf * math.cos(steering_angle) - fyf *
+                  math.sin(steering_angle) - rx - f_aero + m * vy * w) / m
+        vy_dot = (fyr + fyf * math.cos(steering_angle) +
+                  fxf * math.sin(steering_angle) - m * vx * w) / m
+        w_dot = (lf * fxf * math.sin(steering_angle) +
+                 lf * fyf * math.cos(steering_angle) - lr * fyr) / iz
 
         return np.array([[x_dot, y_dot, theta_dot, vx_dot, vy_dot, w_dot]])
 
@@ -1246,12 +1429,13 @@ class RearDriveFrontSteer(AbstractDyn):
 
         """
         state_dot = self.dxdt(state, u, param_dict)
-        state_dot[0, self.state_dict['vx']
-                  ] -= state[self.state_dict['vy']]*state[self.state_dict['w']]
-        state_dot[0, self.state_dict['vy']
-                  ] += state[self.state_dict['vx']]*state[self.state_dict['w']]
+        state_dot[0, self.state_dict['vx']] -= state[
+            self.state_dict['vy']] * state[self.state_dict['w']]
+        state_dot[0, self.state_dict['vy']] += state[
+            self.state_dict['vx']] * state[self.state_dict['w']]
 
-        return np.concatenate((state[self.state_indices], state_dot[0, self.state_dot_indices]))
+        return np.concatenate(
+            (state[self.state_indices], state_dot[0, self.state_dot_indices]))
 
 
 class RearDriveFrontSteerEst(RearDriveFrontSteer):
@@ -1271,10 +1455,23 @@ class RearDriveFrontSteerEst(RearDriveFrontSteer):
         use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False
 
     """
-
-    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False, additional_output_keys=[], use_torch_tensor=False):
-        partial_init(self, RearDriveFrontSteerEst, est_params, param_dict, state_keys, simulate_gt,
-                     state_dot_keys, additional_output_keys, use_torch_tensor=use_torch_tensor)
+    def __init__(self,
+                 param_dict,
+                 est_params,
+                 state_keys,
+                 state_dot_keys=[],
+                 simulate_gt=False,
+                 additional_output_keys=[],
+                 use_torch_tensor=False):
+        partial_init(self,
+                     RearDriveFrontSteerEst,
+                     est_params,
+                     param_dict,
+                     state_keys,
+                     simulate_gt,
+                     state_dot_keys,
+                     additional_output_keys,
+                     use_torch_tensor=use_torch_tensor)
 
     def re_initialise(self):
         """
@@ -1318,12 +1515,23 @@ class RearDriveFrontSteerSubStateVel(AbstractDyn):
     # state dictionary for this model
     global_state_dict = {'vx': 0, 'vy': 1, 'ax': 2, 'ay': 3}
     # expected keys/parameters of this model
-    global_expected_keys = ["m", "iz", "lf", "lr", "ref",
-                            "rer", "fr", "g", "sc_f", "sc_r", "sl_f", "sl_r", "da"]
+    global_expected_keys = [
+        "m", "iz", "lf", "lr", "ref", "rer", "fr", "g", "sc_f", "sc_r", "sl_f",
+        "sl_r", "da"
+    ]
 
-    def __init__(self, param_dict, state_keys, state_dot_keys=[], additional_output_keys=[], use_torch_tensor=False):
-        super(RearDriveFrontSteerSubStateVel, self).__init__(param_dict, state_keys=state_keys,
-                                                             state_dot_keys=state_dot_keys, additional_output_keys=additional_output_keys, use_torch_tensor=use_torch_tensor)
+    def __init__(self,
+                 param_dict,
+                 state_keys,
+                 state_dot_keys=[],
+                 additional_output_keys=[],
+                 use_torch_tensor=False):
+        super(RearDriveFrontSteerSubStateVel,
+              self).__init__(param_dict,
+                             state_keys=state_keys,
+                             state_dot_keys=state_dot_keys,
+                             additional_output_keys=additional_output_keys,
+                             use_torch_tensor=use_torch_tensor)
         # specify expected dimensionality of input
         self.num_in = 4
 
@@ -1366,76 +1574,76 @@ class RearDriveFrontSteerSubStateVel(AbstractDyn):
         vy = state[self.state_dict['vy']]
 
         # compute aero dynamic force
-        f_aero = da*(vx**2)
+        f_aero = da * (vx**2)
 
         # calculate longitudinal slip ratio
-        sigma_xf = ref*wf - vx
+        sigma_xf = ref * wf - vx
         if sigma_xf < 0.0:
-           # braking phase
-           if vx != 0.0:
-               sigma_xf /= vx
-           else:
-               sigma_xf = 0.0
-               print("vx = 0 detected")
+            # braking phase
+            if vx != 0.0:
+                sigma_xf /= vx
+            else:
+                sigma_xf = 0.0
+                print("vx = 0 detected")
         else:
             # acceleration phase
             if wf != 0.0:
-                sigma_xf /= (ref*wf)
+                sigma_xf /= (ref * wf)
             else:
                 sigma_xf = 0.0
                 print("wf = 0 detected")
 
-        sigma_xr = rer*wr - vx
+        sigma_xr = rer * wr - vx
         if sigma_xr < 0.0:
-           # braking phase
-           if vx != 0.0:
-               sigma_xr /= vx
-           else:
-               sigma_xr = 0.0
+            # braking phase
+            if vx != 0.0:
+                sigma_xr /= vx
+            else:
+                sigma_xr = 0.0
         else:
             # acceleration phase
             if wr != 0.0:
-                sigma_xr /= (rer*wr)
+                sigma_xr /= (rer * wr)
             else:
                 sigma_xr = 0.0
                 print("wr = 0 detected")
 
         # calculate logitudinal tire forces
-        fxf = sl_f*sigma_xf
-        fxr = sl_r*sigma_xr
+        fxf = sl_f * sigma_xf
+        fxr = sl_r * sigma_xr
 
         # calculate rolling resistance
-        rx = fr*m*g
+        rx = fr * m * g
 
         # calculate slip angle
         if vx == 0.0:
-            if vy + lf*w == 0.0:
+            if vy + lf * w == 0.0:
                 theta_vf = 0.0
                 print("vy + lf*w = 0 detected")
             else:
-                theta_vf = 0.5*math.pi
-            if vy - lr*w == 0.0:
+                theta_vf = 0.5 * math.pi
+            if vy - lr * w == 0.0:
                 theta_vr = 0.0
                 print("vy - lr*w = 0 detected")
             else:
-                theta_vr = 0.5*math.pi
+                theta_vr = 0.5 * math.pi
         else:
-            theta_vf = (vy + lf*w)/vx
-            theta_vr = (vy - lr*w)/vx
+            theta_vf = (vy + lf * w) / vx
+            theta_vr = (vy - lr * w) / vx
         alpha_f = steering_angle - theta_vf
         alpha_r = -theta_vr
 
         # calculate lateral tire force
-        fyf = sc_f*alpha_f
-        fyr = sc_r*alpha_r
+        fyf = sc_f * alpha_f
+        fyr = sc_r * alpha_r
 
         # calculate the state derivatives
-        ax = (fxr + fxf*math.cos(steering_angle) - fyf *
-              math.sin(steering_angle) - rx - f_aero)/m
-        vx_dot = ax + vy*w
-        ay = (fyr + fyf*math.cos(steering_angle) +
-              fxf*math.sin(steering_angle))/m
-        vy_dot = ay - vx*w
+        ax = (fxr + fxf * math.cos(steering_angle) -
+              fyf * math.sin(steering_angle) - rx - f_aero) / m
+        vx_dot = ax + vy * w
+        ay = (fyr + fyf * math.cos(steering_angle) +
+              fxf * math.sin(steering_angle)) / m
+        vy_dot = ay - vx * w
 
         return np.array([[vx_dot, vy_dot, ax, ay]])
 
@@ -1459,8 +1667,8 @@ class RearDriveFrontSteerSubStateVel(AbstractDyn):
                 next_state[self.state_dict[key]] += dt * \
                     state_dot[0, self.state_dict[key]]
             else:
-                next_state[self.state_dict[key]
-                           ] = state_dot[0, self.state_dict[key]]
+                next_state[self.state_dict[key]] = state_dot[
+                    0, self.state_dict[key]]
 
         return next_state
 
@@ -1482,10 +1690,23 @@ class RearDriveFrontSteerSubStateVelEst(RearDriveFrontSteerSubStateVel):
         use_torch_tensor (bool): whether to use tensor instead of numpy arrays; defaults to False
 
     """
-
-    def __init__(self, param_dict, est_params, state_keys, state_dot_keys=[], simulate_gt=False, additional_output_keys=[], use_torch_tensor=False):
-        partial_init(self, RearDriveFrontSteerSubStateVelEst, est_params, param_dict, state_keys,
-                     simulate_gt, state_dot_keys, additional_output_keys, use_torch_tensor=use_torch_tensor)
+    def __init__(self,
+                 param_dict,
+                 est_params,
+                 state_keys,
+                 state_dot_keys=[],
+                 simulate_gt=False,
+                 additional_output_keys=[],
+                 use_torch_tensor=False):
+        partial_init(self,
+                     RearDriveFrontSteerSubStateVelEst,
+                     est_params,
+                     param_dict,
+                     state_keys,
+                     simulate_gt,
+                     state_dot_keys,
+                     additional_output_keys,
+                     use_torch_tensor=use_torch_tensor)
 
     def re_initialise(self):
         """
@@ -1507,7 +1728,8 @@ class RearDriveFrontSteerSubStateVelEst(RearDriveFrontSteerSubStateVel):
             state_dot (numpy array [6+len(self.est_params) x 1]): derivative of the states
 
         """
-        return partial_dxdt(self, RearDriveFrontSteerSubStateVelEst, state, u, param_dict)
+        return partial_dxdt(self, RearDriveFrontSteerSubStateVelEst, state, u,
+                            param_dict)
 
 
 def sample_linear(T, cruise_time, decrease_flag, *args):
@@ -1528,17 +1750,17 @@ def sample_linear(T, cruise_time, decrease_flag, *args):
     # create input vector
     U = np.zeros((len(args), len(T)))
     if decrease_flag:
-        t_after_accel = (T[-1] - cruise_time)/2.0
+        t_after_accel = (T[-1] - cruise_time) / 2.0
     else:
-        t_after_accel = (T[-1] - cruise_time)/1.0
+        t_after_accel = (T[-1] - cruise_time) / 1.0
     t_before_deaccel = t_after_accel + cruise_time
 
     # fill in the input for each physical entity
     for index, maximum in enumerate(args):
-        slope = maximum/t_after_accel
+        slope = maximum / t_after_accel
 
         # linearly increase to maximum phase
-        U[index, T <= t_after_accel] = slope*T[T <= t_after_accel]
+        U[index, T <= t_after_accel] = slope * T[T <= t_after_accel]
 
         # cruise phase
         U[index, (T > t_after_accel) & (T < t_before_deaccel)] = maximum
@@ -1550,17 +1772,20 @@ def sample_linear(T, cruise_time, decrease_flag, *args):
     return U
 
 
-def sample_input_rover(T, max_steering=30*math.pi/180.0, max_speed=5.0, cruise_time=2.0):
+def sample_input_rover(T,
+                       max_steering=30 * math.pi / 180.0,
+                       max_speed=5.0,
+                       cruise_time=2.0):
     """
     Create an example input vector for the rover dynamic model in which:
-    (i) steering angle linearly increase to max and decrease back to zero 
+    (i) steering angle linearly increase to max and decrease back to zero
     (ii) velocity linearly increase to max and decrease back to zero
 
     Args:
         T (numpy array [nt x 1]): time instances for generating the inputs
         max_steering (float): maximum steering angle in radians to linearly increase from zero to; defaults to pi/6 radians
         max_speed (float): maximum speed in m/s to linearly increase from zero to; defaults to 5 m/s
-        cruise_time (float): number of seconds to maintain maximum steering and speed before linearly decreasing 
+        cruise_time (float): number of seconds to maintain maximum steering and speed before linearly decreasing
             back to zero; defaults to 2 s
 
     Returns:
@@ -1570,21 +1795,24 @@ def sample_input_rover(T, max_steering=30*math.pi/180.0, max_speed=5.0, cruise_t
     return sample_linear(T, cruise_time, *[max_steering, max_speed])
 
 
-def sample_input_front_steered(T, max_w=45*math.pi/180.0, max_steering=20*math.pi/180.0, cruise_time=2.0):
+def sample_input_front_steered(T,
+                               max_w=45 * math.pi / 180.0,
+                               max_steering=20 * math.pi / 180.0,
+                               cruise_time=2.0):
     """
     Create an example input vector for the front_steered dynamic model in which:
     (i) wheel rate linearly increase to max and decrease back to zero
-    (ii) steering angle linearly increase to max and decrease back to zero 
+    (ii) steering angle linearly increase to max and decrease back to zero
 
     Args:
         T (numpy array [nt x 1]): time instances for generating the inputs
         max_w (float): maximum wheel rate in rad/s to linearly increase from zero to; defaults to pi/4 rad/s
         max_steering (float): maximum steering angle in radians to linearly increase from zero to; defaults to pi/9 radians
-        cruise_time (float): number of seconds to maintain maximum steering and speed before linearly decreasing 
+        cruise_time (float): number of seconds to maintain maximum steering and speed before linearly decreasing
             back to zero; defaults to 2 s
 
     Returns:
-        U (numpy array [3 x nt]): input consisting of steering angle, left and right wheel rates (assumed equal) at 
+        U (numpy array [3 x nt]): input consisting of steering angle, left and right wheel rates (assumed equal) at
             different time instances
 
     """
@@ -1597,8 +1825,17 @@ def test_rover_dyn():
     RoverDyn in producing the same ground truth data.
     """
     # assume parameter values in accordance to Michigan's rover
-    param_dict = {'c1': 1.6615e-5, 'c2': -1.9555e-07, 'c3': 3.6190e-06, 'c4': 4.3820e-07,
-                  'c5': -0.0811, 'c6': -1.4736, 'c7': 0.1257, 'c8': 0.0765, 'c9': -0.0140}
+    param_dict = {
+        'c1': 1.6615e-5,
+        'c2': -1.9555e-07,
+        'c3': 3.6190e-06,
+        'c4': 4.3820e-07,
+        'c5': -0.0811,
+        'c6': -1.4736,
+        'c7': 0.1257,
+        'c8': 0.0765,
+        'c9': -0.0140
+    }
 
     # timing information
     dt = 0.05
@@ -1615,25 +1852,30 @@ def test_rover_dyn():
     gt_states, _, initial_cond, outputs = dynamic_obj.sample_nlds(z0, U, T)
 
     assert np.allclose(
-        gt_states, outputs), "Gt not the same as output when no noises are present"
+        gt_states,
+        outputs), "Gt not the same as output when no noises are present"
     assert np.allclose(
-        z0, initial_cond), "Initial condition is not the same as first ground truth despite confident initial condition"
+        z0, initial_cond
+    ), "Initial condition is not the same as first ground truth despite confident initial condition"
 
     # check result from the same model with unknown parameters
     z0 = np.zeros((13, 1))
     for i in range(1, 10):
-        z0[3+i] = param_dict['c'+str(i)]
+        z0[3 + i] = param_dict['c' + str(i)]
     est_params = ["c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"]
     est_param_dynamic_obj = RoverPartialDynEst({}, est_params, state_keys)
     gt_states1, _, initial_cond1, outputs1 = est_param_dynamic_obj.sample_nlds(
         z0, U, T)
 
-    assert np.allclose(np.matlib.repmat(z0[4:, :], 1, len(
-        T)), gt_states1[4:, :]), "States should remain the same, stationary"
     assert np.allclose(
-        gt_states, gt_states1[:4, :]), "Gt should be the same given no uncertainty in parameters"
+        np.matlib.repmat(z0[4:, :], 1, len(T)),
+        gt_states1[4:, :]), "States should remain the same, stationary"
     assert np.allclose(
-        outputs, outputs1), "Outputs should also be the same given no uncertainty in parameters"
+        gt_states, gt_states1[:4, :]
+    ), "Gt should be the same given no uncertainty in parameters"
+    assert np.allclose(
+        outputs, outputs1
+    ), "Outputs should also be the same given no uncertainty in parameters"
 
     # do some plots of the resultant trajectory (sanity check)
     import matplotlib.pyplot as plt
